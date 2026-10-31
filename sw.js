@@ -1,7 +1,7 @@
 /* PUSULA — offline çalışma için önbellek */
-const CACHE = 'pusula-v1.3.0';
+const CACHE = 'pusula-v1.4.0';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png',
-  './fonts/inter.woff2', './fonts/inter-ext.woff2', './fonts/nunito.woff2', './fonts/nunito-ext.woff2', './fonts/source-serif-4.woff2', './fonts/source-serif-4-ext.woff2', './fonts/jetbrains-mono.woff2', './fonts/jetbrains-mono-ext.woff2',
+  './fonts/carlito-400.woff2', './fonts/carlito-400-ext.woff2', './fonts/carlito-700.woff2', './fonts/carlito-700-ext.woff2', './fonts/source-sans-3.woff2', './fonts/source-sans-3-ext.woff2',
   './fonts/plex-400.woff2', './fonts/plex-400-ext.woff2', './fonts/plex-500.woff2', './fonts/plex-500-ext.woff2', './fonts/plex-600.woff2', './fonts/plex-600-ext.woff2', './fonts/plex-700.woff2', './fonts/plex-700-ext.woff2'];
 
 self.addEventListener('install', e => {
