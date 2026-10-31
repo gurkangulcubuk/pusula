@@ -11,6 +11,20 @@
 /* ===================== Ortak ===================== */
 const lsj = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 const lsjw = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* yok */ } };
+/* Eşitlenen araç verisi: skorlar, geçmişler ve ayarlar 'td:<anahtar>' kaydı olarak saklanır (Drive'a gider).
+   Yarım kalan oyun tahtaları ve döviz kuru önbelleği cihazda kalır. */
+const TD_KEYS = ['calc', 'pomoCfg', 'pomoLog', 'loan', 'decideList'];
+const tdGet = (key, def) => { const it = S.items.get('td:' + key); if (it && !it.deleted) return JSON.parse(JSON.stringify(it.v)); const old = lsj('pusula.' + key, undefined); return old === undefined ? def : old; };
+function tdSet(key, v) { const id = 'td:' + key; const it = S.items.get(id) || { id, type: 'tooldata', key }; it.v = v; it.deleted = false; save(it, { silent: true }); }
+function tdDelPrefix(prefix) { S.items.forEach(it => { if (it.type === 'tooldata' && !it.deleted && (it.key === prefix || String(it.key).startsWith(prefix + '.'))) remove(it, { silent: true }); }); }
+let tdMigrated = false;
+function tdMigrate() { // 1.7.0'da cihazda tutulan veriyi bir kez eşitlenen kayda taşır
+  if (tdMigrated) return; tdMigrated = true;
+  try {
+    const keys = TD_KEYS.concat(Object.keys(localStorage).filter(k => k.startsWith('pusula.gs.')).map(k => k.slice(7)));
+    keys.forEach(k => { const raw = localStorage.getItem('pusula.' + k); if (raw == null) return; if (!S.items.get('td:' + k)) { try { tdSet(k, JSON.parse(raw)); } catch (e) { /* bozuk */ } } localStorage.removeItem('pusula.' + k); });
+  } catch (e) { /* depolama yok */ }
+}
 let AC = null;
 function beep(times, freq) {
   try {
@@ -69,6 +83,7 @@ Object.assign(ICONS, {
   text: '<path d="M5 6h14M12 6v13M9 19h6"/>'
 });
 function viewTools() {
+  tdMigrate();
   const tile = (x, act) => '<button class="tool-tile" data-act="' + act + '" data-k="' + x[0] + '">' + icon(x[3]) + '<span class="tt-name">' + x[1] + '</span><span class="tt-desc">' + x[2] + '</span></button>';
   return '<div class="section-title first"><span>Araçlar</span></div><div class="tool-grid">' + TOOLS.map(x => tile(x, 'tool-open')).join('') + '</div>' +
     '<div class="section-title"><span>Oyunlar</span></div><div class="tool-grid">' + GAMES.map(x => tile(x, 'game-open')).join('') + '</div>';
@@ -79,7 +94,7 @@ Object.assign(ACTIONS, {
 });
 
 /* ===================== Hesap makinesi ===================== */
-const CALC = { expr: '', hist: lsj('pusula.calc', []) };
+const CALC = { expr: '', hist: [] };
 function calcEval(expr) {
   const src = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/,/g, '.');
   const toks = []; let i = 0;
@@ -114,6 +129,7 @@ function calcEval(expr) {
 }
 const calcFmt = n => !isFinite(n) ? (isNaN(n) ? '' : '∞') : (Math.abs(n) >= 1e15 || (Math.abs(n) < 1e-9 && n !== 0) ? n.toExponential(6) : String(Math.round(n * 1e10) / 1e10)).replace('.', ',');
 function openCalc() {
+  CALC.hist = tdGet('calc', []);
   const keys = [['C', 'k-fn'], ['⌫', 'k-fn'], ['%', 'k-fn'], ['÷', 'k-op'], ['7'], ['8'], ['9'], ['×', 'k-op'], ['4'], ['5'], ['6'], ['−', 'k-op'], ['1'], ['2'], ['3'], ['+', 'k-op'], ['±', 'k-fn'], ['0'], [','], ['=', 'k-eq']];
   toolSheet(T_('Hesap makinesi'), '<div class="calc"><div class="calc-disp"><div class="calc-expr" id="calcExpr"></div><div class="calc-res" id="calcRes">0</div></div>' +
     '<div class="calc-keys">' + keys.map(k => '<button class="ck ' + (k[1] || '') + '" data-act="calc-key" data-k="' + k[0] + '">' + k[0] + '</button>').join('') + '</div>' +
@@ -132,7 +148,7 @@ Object.assign(ACTIONS, {
     const k = el.dataset.k; let x = CALC.expr;
     if (k === 'C') x = '';
     else if (k === '⌫') x = x.slice(0, -1);
-    else if (k === '=') { const v = calcEval(x); if (x && isFinite(v)) { const r = calcFmt(v); CALC.hist.push({ e: x, r, t: Date.now() }); CALC.hist = CALC.hist.slice(-30); lsjw('pusula.calc', CALC.hist); x = r; } }
+    else if (k === '=') { const v = calcEval(x); if (x && isFinite(v)) { const r = calcFmt(v); CALC.hist.push({ e: x, r, t: Date.now() }); CALC.hist = CALC.hist.slice(-30); tdSet('calc', CALC.hist); x = r; } }
     else if (k === '±') { const m = x.match(/(−?)([0-9,]+)$/); if (m) x = x.slice(0, x.length - m[0].length) + (m[1] ? '' : '−') + m[2]; else x += '−'; }
     else if ('+−×÷'.includes(k)) { if (!x && k !== '−') return; if (/[+−×÷]$/.test(x)) x = x.slice(0, -1); x += k; }
     else if (k === ',') { const last = x.split(/[+−×÷]/).pop(); if (!last.includes(',')) x += (last === '' ? '0,' : ','); }
@@ -140,7 +156,7 @@ Object.assign(ACTIONS, {
     CALC.expr = x; calcRender();
   },
   'calc-use': el => { const h = CALC.hist[+el.dataset.i]; if (!h) return; CALC.expr = h.r; calcRender(); try { navigator.clipboard.writeText(h.r).then(() => toast(tr('Sonuç kopyalandı'))).catch(() => {}); } catch (e) { /* yok */ } },
-  'calc-clear': () => { if (!CALC.hist.length || !ask('Hesap geçmişi silinsin mi?')) return; CALC.hist = []; lsjw('pusula.calc', []); calcRender(); }
+  'calc-clear': () => { if (!CALC.hist.length || !ask('Hesap geçmişi silinsin mi?')) return; CALC.hist = []; tdSet('calc', []); calcRender(); }
 });
 
 /* ===================== Zamanlayıcı ve kronometre ===================== */
@@ -184,17 +200,17 @@ Object.assign(ACTIONS, {
 });
 
 /* ===================== Odak sayacı (Pomodoro) ===================== */
-const PM = Object.assign({ phase: 'work', left: 0, end: 0, run: false, round: 0, task: '' }, { cfg: lsj('pusula.pomoCfg', { work: 25, short: 5, long: 15, every: 4 }) });
+const PM = Object.assign({ phase: 'work', left: 0, end: 0, run: false, round: 0, task: '' }, { cfg: { work: 25, short: 5, long: 15, every: 4 } });
 const pmDur = ph => (PM.cfg[ph] || 25) * 60000;
 PM.left = pmDur('work');
-function pmToday() { const d = lsj('pusula.pomoLog', {}); return d[today()] || 0; }
+function pmToday() { const d = tdGet('pomoLog', {}); return d[today()] || 0; }
 function pmTick() {
   if (!PM.run) return;
   PM.left = PM.end - Date.now();
   if (PM.left <= 0) {
     beep(4, PM.phase === 'work' ? 660 : 990);
     if (PM.phase === 'work') {
-      PM.round++; const log = lsj('pusula.pomoLog', {}); log[today()] = (log[today()] || 0) + 1; lsjw('pusula.pomoLog', log);
+      PM.round++; const log = tdGet('pomoLog', {}); log[today()] = (log[today()] || 0) + 1; Object.keys(log).sort().slice(0, -400).forEach(k => delete log[k]); tdSet('pomoLog', log);
       PM.phase = PM.round % (PM.cfg.every || 4) === 0 ? 'long' : 'short'; toast(tr('Odak tamam, mola zamanı'));
     } else { PM.phase = 'work'; toast(tr('Mola bitti, odaklanma zamanı')); }
     PM.left = pmDur(PM.phase); PM.end = Date.now() + PM.left;
@@ -203,8 +219,9 @@ function pmTick() {
   const p = $('#pmPhase'); if (p) p.textContent = tr(PM_LABEL[PM.phase]);
   const r = $('#pmRing'); if (r) r.style.setProperty('--p', (100 - PM.left / pmDur(PM.phase) * 100) + '%');
 }
+let pmCfgT = null;
 const PM_LABEL = { work: 'Odak', short: 'Kısa mola', long: 'Uzun mola' };
-function openPomo() { toolSheet(T_('Odak sayacı'), '<div id="pmWrap"></div>'); pomoRender(); }
+function openPomo() { if (!PM.run) { PM.cfg = Object.assign({ work: 25, short: 5, long: 15, every: 4 }, tdGet('pomoCfg', {})); PM.left = pmDur(PM.phase); } toolSheet(T_('Odak sayacı'), '<div id="pmWrap"></div>'); pomoRender(); }
 function pomoRender() {
   const w = $('#pmWrap'); if (!w) return;
   const tasks = list('task').filter(t => !t.done).sort(taskSort).slice(0, 30);
@@ -222,16 +239,17 @@ Object.assign(ACTIONS, {
 
 /* ===================== Kredi ve taksit ===================== */
 function openLoan() {
-  const c = lsj('pusula.loan', { amount: 100000, rate: 3.5, months: 12, kind: 'monthly' });
+  const c = tdGet('loan', { amount: 100000, rate: 3.5, months: 12, kind: 'monthly' });
   toolSheet(T_('Kredi ve taksit'), '<div class="loan"><label class="field"><span>Kredi tutarı (₺)</span><input class="input" type="number" inputmode="decimal" id="lnA" value="' + c.amount + '"></label>' +
     '<div class="field-row"><label class="field"><span>Faiz oranı (%)</span><input class="input" type="number" inputmode="decimal" step="any" id="lnR" value="' + c.rate + '"></label><label class="field"><span>Vade (ay)</span><input class="input" type="number" inputmode="numeric" id="lnM" value="' + c.months + '"></label></div>' +
     '<div class="field"><span>Faiz türü</span>' + seg('lnKind', [['monthly', 'Aylık'], ['yearly', 'Yıllık']], c.kind) + '</div>' +
     '<div id="lnOut"></div><p class="muted sm">Vergi ve masraflar (BSMV, KKDF, dosya ücreti) dahil değildir; bankanın teklifiyle karşılaştırmak için yaklaşık hesaptır.</p></div>');
   loanCalc();
 }
+let loanT = null;
 function loanCalc() {
   const A = parseFloat($('#lnA') && $('#lnA').value) || 0, R = parseFloat($('#lnR').value) || 0, M = parseInt($('#lnM').value, 10) || 0;
-  const kind = segVal('lnKind') || 'monthly'; lsjw('pusula.loan', { amount: A, rate: R, months: M, kind });
+  const kind = segVal('lnKind') || 'monthly'; clearTimeout(loanT); loanT = setTimeout(() => tdSet('loan', { amount: A, rate: R, months: M, kind }), 800);
   const out = $('#lnOut'); if (!out) return;
   if (!(A > 0 && M > 0)) { out.innerHTML = ''; return; }
   const r = kind === 'monthly' ? R / 100 : R / 100 / 12;
@@ -318,8 +336,8 @@ Object.assign(ACTIONS, {
 });
 
 /* ===================== Karar verici ===================== */
-const DC = { mode: 'dice', dice: 1, last: '', list: lsj('pusula.decideList', ''), min: 1, max: 100 };
-function openDecide() { toolSheet(T_('Karar verici'), '<div id="dcWrap"></div>'); decideRender(); }
+const DC = { mode: 'dice', dice: 1, last: '', list: null, min: 1, max: 100 };
+function openDecide() { if (DC.list == null) DC.list = tdGet('decideList', ''); toolSheet(T_('Karar verici'), '<div id="dcWrap"></div>'); decideRender(); }
 function decideRender() {
   const w = $('#dcWrap'); if (!w) return;
   const modes = [['dice', 'Zar'], ['coin', 'Yazı-tura'], ['list', 'Listeden seç'], ['num', 'Sayı']];
@@ -338,7 +356,7 @@ Object.assign(ACTIONS, {
     const res = $('#dcRes'); let v = '';
     if (DC.mode === 'dice') { DC.dice = +(segVal('dcN') || 1); const faces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']; const rolls = Array.from({ length: DC.dice }, () => rnd(6)); v = rolls.map(r => faces[r]).join(' ') + '<small>' + rolls.reduce((a, r) => a + r + 1, 0) + '</small>'; }
     if (DC.mode === 'coin') v = rnd(2) ? Lx('Yazı', 'Tails') : Lx('Tura', 'Heads');
-    if (DC.mode === 'list') { DC.list = $('#dcList').value; lsjw('pusula.decideList', DC.list); const opts = DC.list.split('\n').map(x => x.trim()).filter(Boolean); if (!opts.length) return toast(tr('Önce seçenek yaz')); v = esc(opts[rnd(opts.length)]); }
+    if (DC.mode === 'list') { DC.list = $('#dcList').value; if (DC.list !== tdGet('decideList', '')) tdSet('decideList', DC.list); const opts = DC.list.split('\n').map(x => x.trim()).filter(Boolean); if (!opts.length) return toast(tr('Önce seçenek yaz')); v = esc(opts[rnd(opts.length)]); }
     if (DC.mode === 'num') { DC.min = parseInt($('#dcMin').value, 10) || 0; DC.max = parseInt($('#dcMax').value, 10) || 0; const lo = Math.min(DC.min, DC.max), hi = Math.max(DC.min, DC.max); v = String(lo + rnd(hi - lo + 1)); }
     DC.last = v; res.classList.remove('pop'); void res.offsetWidth; res.innerHTML = v; res.classList.add('pop');
     if (navigator.vibrate) navigator.vibrate(30);
@@ -351,7 +369,7 @@ document.addEventListener('input', e => {
   if (/^ln[ARM]$/.test(id)) loanCalc();
   else if (/^dt[ABCN]$/.test(id)) datesCalc();
   else if (id === 'unVal') { UV.val = e.target.value; unitsCalc(); }
-  else if (/^pm[WSLE]$/.test(id)) { const v = Math.max(1, parseInt(e.target.value, 10) || 1); PM.cfg[{ pmW: 'work', pmS: 'short', pmL: 'long', pmE: 'every' }[id]] = v; lsjw('pusula.pomoCfg', PM.cfg); if (!PM.run) { PM.left = pmDur(PM.phase); const c = $('#pmClock'); if (c) c.innerHTML = fmtClock(PM.left); } }
+  else if (/^pm[WSLE]$/.test(id)) { const v = Math.max(1, parseInt(e.target.value, 10) || 1); PM.cfg[{ pmW: 'work', pmS: 'short', pmL: 'long', pmE: 'every' }[id]] = v; clearTimeout(pmCfgT); pmCfgT = setTimeout(() => tdSet('pomoCfg', PM.cfg), 600); if (!PM.run) { PM.left = pmDur(PM.phase); const c = $('#pmClock'); if (c) c.innerHTML = fmtClock(PM.left); } }
 });
 document.addEventListener('change', e => {
   const id = e.target.id || '';
@@ -361,8 +379,8 @@ document.addEventListener('change', e => {
 document.addEventListener('click', e => { const b = e.target.closest('.seg[data-name=lnKind] button'); if (b) setTimeout(loanCalc, 0); });
 
 /* ===================== Oyun istatistikleri (ortak) ===================== */
-function gStats(key, def) { return lsj('pusula.gs.' + key, def || { played: 0, won: 0, best: null, hist: [] }); }
-function gStatsSave(key, s) { s.hist = (s.hist || []).slice(-30); lsjw('pusula.gs.' + key, s); }
+function gStats(key, def) { return tdGet('gs.' + key, def || { played: 0, won: 0, best: null, hist: [] }); }
+function gStatsSave(key, s) { s.hist = (s.hist || []).slice(-30); tdSet('gs.' + key, s); }
 function statsBlock(key, rows, histRow) {
   const s = gStats(key);
   return '<div class="g-stats"><div class="g-stat-row">' + rows.map(r => '<div><b>' + r[1] + '</b><span>' + r[0] + '</span></div>').join('') + '</div>' +
@@ -373,7 +391,7 @@ const shortDate = t => new Date(t).toLocaleDateString(TR, { day: 'numeric', mont
 Object.assign(ACTIONS, {
   'g-clear': el => {
     const k = el.dataset.k; if (!ask('Bu oyunun geçmişi ve istatistikleri silinsin mi?')) return;
-    try { Object.keys(localStorage).filter(x => x === 'pusula.gs.' + k || x.startsWith('pusula.gs.' + k + '.')).forEach(x => localStorage.removeItem(x)); } catch (e) { /* yok */ }
+    tdDelPrefix('gs.' + k); try { Object.keys(localStorage).filter(x => x === 'pusula.gs.' + k || x.startsWith('pusula.gs.' + k + '.')).forEach(x => localStorage.removeItem(x)); } catch (e) { /* yok */ }
     toast(tr('Geçmiş silindi'));
     ({ g2048: g2048Render, mines: minesRender, sudoku: sudokuRender, wordtr: wordRender, worden: wordRender })[k.split('.')[0]]();
   }
@@ -570,12 +588,16 @@ function wordFor(lang, mode) {
   return ans[rnd(ans.length)];
 }
 function wState(lang, mode) {
-  const key = 'pusula.word.' + lang + '.' + mode; let s = lsj(key, null);
+  let s = mode === 'daily' ? tdGet('word.' + lang + '.daily', null) : lsj('pusula.word.' + lang + '.free', null);
   if (mode === 'daily' && (!s || s.day !== today())) s = { day: today(), target: wordFor(lang, 'daily'), guesses: [], cur: '', done: false, won: false };
   if (mode === 'free' && !s) s = { target: wordFor(lang, 'free'), guesses: [], cur: '', done: false, won: false };
   return s;
 }
-const wSave = (lang, mode, s) => lsjw('pusula.word.' + lang + '.' + mode, s);
+function wSave(lang, mode, s) {
+  if (mode !== 'daily') return lsjw('pusula.word.' + lang + '.' + mode, s);
+  const prev = tdGet('word.' + lang + '.daily', null); // günün kelimesi cihazlar arası eşitlenir, sadece tahmin girilince yazılır
+  if (!prev || prev.day !== s.day || prev.guesses.length !== s.guesses.length) tdSet('word.' + lang + '.daily', Object.assign({}, s, { cur: '' }));
+}
 function wScore(guess, target) {
   const g = Array.from(guess), t = Array.from(target), res = Array(5).fill('b'), left = {};
   for (let i = 0; i < 5; i++) { if (g[i] === t[i]) res[i] = 'g'; else left[t[i]] = (left[t[i]] || 0) + 1; }
