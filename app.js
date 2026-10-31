@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.11.1';
+const VERSION = '1.11.2';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -528,7 +528,7 @@ const Cal = {
     const date = allDay ? e.start.date : (e.start && e.start.dateTime || '').slice(0, 10);
     const hm = x => { if (!x) return ''; const d = new Date(x); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
     const localDate = allDay ? date : ymd(new Date(e.start.dateTime));
-    return { gid: e.id, cal: cal.id, color: cal.color, calName: cal.name, title: e.summary || '(başlıksız)', date: localDate, allDay, start: allDay ? '' : hm(e.start.dateTime), end: allDay ? '' : hm(e.end && e.end.dateTime), endDate: allDay && e.end ? e.end.date : '', notes: e.description || '', loc: e.location || '', recurring: !!e.recurringEventId, remind: e.reminders && !e.reminders.useDefault ? (e.reminders.overrides || []).filter(o => o.method === 'popup').map(o => o.minutes) : null, remindDefault: !!(e.reminders && e.reminders.useDefault) };
+    return { gid: e.id, cal: cal.id, color: cal.color, calName: cal.name, title: e.summary || '(başlıksız)', date: localDate, allDay, start: allDay ? '' : hm(e.start.dateTime), end: allDay ? '' : hm(e.end && e.end.dateTime), endDate: allDay && e.end ? e.end.date : '', notes: e.description || '', loc: e.location || '', recurring: !!e.recurringEventId, rid: e.recurringEventId || '', remind: e.reminders && !e.reminders.useDefault ? (e.reminders.overrides || []).filter(o => o.method === 'popup').map(o => o.minutes) : null, remindDefault: !!(e.reminders && e.reminders.useDefault) };
   },
   async fetchRange(from, to) {
     const all = [];
@@ -553,7 +553,10 @@ const Cal = {
     this.fetched[m] = Date.now();
     await this.fetchRange(from, to);
   },
-  forDate(d) { return (this.byDate[d] || []).slice().sort((a, b) => (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0) || (a.start || '').localeCompare(b.start || '')); },
+  // PUSULA rutinlerinin Google'daki kopyaları gösterilmez (rutin zaten PUSULA'da görünüyor)
+  mirrorIds() { const s = new Set(); list('routine').forEach(r => { if (r.gev && r.gev.id) s.add(r.gev.id); }); return s; },
+  isMirror(e, ids) { return ids.has(e.gid) || (e.rid && ids.has(e.rid)) || /^PUSULA rutini/.test(e.notes || ''); },
+  forDate(d) { const ids = this.mirrorIds(); return (this.byDate[d] || []).filter(e => !this.isMirror(e, ids)).sort((a, b) => (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0) || (a.start || '').localeCompare(b.start || '')); },
   findEvent(gid) { for (const d in this.byDate) { const e = this.byDate[d].find(x => x.gid === gid); if (e) return e; } return null; },
   body(ev) {
     const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'Europe/Istanbul';
@@ -580,10 +583,10 @@ const Cal = {
     try {
       if (r.gev && r.gev.id) { try { await this.patch(r.gev.cal, r.gev.id, ev); } catch (e) { if (e.status === 404 || e.status === 410) r.gev = null; else throw e; } }
       if (!r.gev || !r.gev.id) { const res = await this.insert(this.cfg.def, ev); r.gev = { id: res.id, cal: this.cfg.def }; }
-      delete r._calPending; await save(r, { silent: true });
+      delete r._calPending; r.rr = 2; await save(r, { silent: true });
     } catch (e) { console.warn(e); r._calPending = 1; }
   },
-  async flushRoutines() { for (const r of list('routine')) if (r._calPending && r.toCal) await this.upsertRoutine(r); },
+  async flushRoutines() { for (const r of list('routine')) if (r.toCal && (r._calPending || (r.gev && r.rec && r.rec.mode === 'cal' && r.rr !== 2))) await this.upsertRoutine(r); }, // rr=2: Google'da tekrarlı etkinlik olarak yazıldı
   async sync() {
     if (!this.ready() || this.busy) { if (this.on() && !this.ready() && navigator.onLine) this.setStatus('needauth'); return; }
     this.busy = true; this.setStatus('syncing');
@@ -1228,7 +1231,7 @@ function viewCalMonth() {
   const marks = {};
   const evAll = list('event'); for (let i = 0; i < cellsN; i++) { const d = addDays(start, i); const n = evAll.filter(e => evOccurs(e, d)).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += n; } }
   list('task').forEach(t => { if (t.due && !t.done) { marks[t.due] = marks[t.due] || { e: 0, t: 0 }; marks[t.due].t++; } });
-  if (Cal.on()) Object.keys(Cal.byDate).forEach(d => { if (Cal.byDate[d].length) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += Cal.byDate[d].length; } });
+  if (Cal.on()) Object.keys(Cal.byDate).forEach(d => { const n = Cal.forDate(d).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += n; } });
   const rtAll = list('routine'); for (let i = 0; i < cellsN; i++) { const d = addDays(start, i); const n = rtAll.filter(r => routineOn(r, d)).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].t += n; } }
   let cells = '';
   for (let i = 0; i < cellsN; i++) {
