@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.8.0';
+const VERSION = '1.9.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -694,7 +694,7 @@ const EN = {
   'Bugün için görev yok.': 'No tasks for today.', 'Bugün takvimin boş.': 'Your calendar is clear today.', 'Bugün için alışkanlık yok.': 'No habits for today.',
   'Açık': 'Light', 'Bekleyen': 'Open', 'Yaklaşan': 'Upcoming', 'Biten': 'Done', 'Hızlı görev ekle…': 'Quick add a task…', 'Bugün için görev ekle…': 'Add a task for today…',
   'Gecikmiş': 'Overdue', 'Bu hafta': 'This week', 'Daha sonra': 'Later', 'Tarihsiz': 'No date', 'Bugün ve gecikmiş': 'Today & overdue', 'Tamamlanan': 'Completed',
-  'Açık görev yok. Yukarıdan hızlıca ekleyebilirsin.': 'No open tasks. Add one above.', 'Yaklaşan tarihli görev yok.': 'No upcoming tasks.', 'Henüz tamamlanan görev yok.': 'No completed tasks yet.',
+  'Bekleyen görev yok. Yukarıdan hızlıca ekleyebilirsin.': 'No open tasks. Add one above.', 'Yaklaşan tarihli görev yok.': 'No upcoming tasks.', 'Henüz tamamlanan görev yok.': 'No completed tasks yet.',
   'Yeni görev': 'New task', 'Görevi düzenle': 'Edit task', 'Ne yapılacak?': 'What needs doing?', 'Not ekle (isteğe bağlı)': 'Add a note (optional)',
   'Tarih': 'Date', 'Saat': 'Time', '1 hafta sonra': 'In a week', 'Öncelik': 'Priority', 'Yok': 'None', 'Düşük': 'Low', 'Orta': 'Medium', 'Yüksek': 'High',
   'Tekrar': 'Repeat', 'Tekrar yok': 'No repeat', 'Her gün': 'Every day', 'Hafta içi her gün': 'Every weekday', 'Her hafta': 'Every week', 'Her ay': 'Every month', 'Her yıl': 'Every year',
@@ -894,6 +894,7 @@ function render() {
   else if (S.tab === 'tools') { title = T('tools'); body = typeof viewTools === 'function' ? viewTools() : ''; }
   else { title = T('settings'); body = viewSettings(); }
   if ((Drive.on() || Cal.on()) && S.tab !== 'settings') actions += '<button id="syncBtn" class="icon-btn ' + (Drive.status === 'syncing' ? 'spin ' : '') + (Drive.status === 'needauth' || Drive.status === 'error' ? 'warn' : '') + '" data-act="sync-now" aria-label="Eşitle">' + icon('sync') + '</button>';
+  if (S.tab !== 'settings' && typeof dnTopButton === 'function') actions += dnTopButton();
   if (S.tab !== 'settings') { const n = computeAlerts().length; actions += '<button class="icon-btn bell ' + (n ? 'has' : '') + '" data-act="alerts" aria-label="Uyarılar">' + icon('bell') + (n ? '<b class="badge">' + (n > 9 ? '9+' : n) + '</b>' : '') + '</button>'; }
   actions += S.tab === 'settings'
     ? '<button class="icon-btn" data-act="close-settings" aria-label="Kapat">' + icon('x') + '</button>'
@@ -1143,7 +1144,7 @@ function viewTasks() {
     const g = { over: [], today: [], tom: [], week: [], later: [], none: [] };
     open.forEach(t => { if (!t.due) g.none.push(t); else if (t.due < t0) g.over.push(t); else if (t.due === t0) g.today.push(t); else if (t.due === tm) g.tom.push(t); else if (t.due <= wk) g.week.push(t); else g.later.push(t); });
     body = section('Gecikmiş', g.over, 'danger') + section('Bugün', g.today) + section('Yarın', g.tom) + section('Bu hafta', g.week) + section('Daha sonra', g.later) + section('Tarihsiz', g.none);
-    if (!open.length) body = '<div class="card"><div class="empty">Açık görev yok. Yukarıdan hızlıca ekleyebilirsin.</div></div>';
+    if (!open.length) body = '<div class="card"><div class="empty">Bekleyen görev yok. Yukarıdan hızlıca ekleyebilirsin.</div></div>';
   } else if (f === 'today') {
     const arr = open.filter(t => t.due && t.due <= t0);
     body = arr.length ? section('Bugün ve gecikmiş', arr) : '<div class="card"><div class="empty">Bugün için görev yok.</div></div>';
@@ -1685,7 +1686,8 @@ function viewSettings() {
     '<div class="set-row click" data-act="export">' + icon('download') + '<div class="grow"><div>Yedeği dosya olarak indir</div></div></div>' +
     '<label class="set-row click">' + icon('upload') + '<div class="grow"><div>Yedekten içe aktar</div><div class="sub">Var olan verilerle birleştirilir</div></div><input type="file" id="importFile" accept="application/json,.json,text/plain" hidden></label>' +
     '<div class="set-row click danger" data-act="wipe">' + icon('trash') + '<div class="grow">Bu cihazdaki tüm verileri sil</div></div>';
-  const app = '<div class="set-row click update-row" data-act="check-update">' + icon('sync') + '<div class="grow"><div>' + (S.waitingSW ? 'Yeni sürüm hazır — yüklemek için dokun' : 'Güncellemeleri denetle') + '</div><div class="sub" id="updStatus">' + (S.waitingSW ? 'Verilerin silinmez' : 'Şu anki sürüm ' + VERSION) + '</div></div></div>';
+  const dn = typeof dnOpen === 'function' ? '<div class="set-row click" data-act="devnotes">' + icon('idea') + '<div class="grow"><div>Güncelleme notları</div><div class="sub">' + dnOpen().length + ' <span>bekleyen not</span></div></div>' + icon('right') + '</div><div class="set-row"><div class="grow"><div>Üstte güncelleme notu simgesi</div><div class="sub">Ampul simgesi: aklına geleni hemen not al</div></div><button class="switch ' + (st.devIcon !== false ? 'on' : '') + '" data-act="devicon-toggle" aria-label="Aç/kapat"></button></div>' : '';
+  const app = dn + '<div class="set-row click update-row" data-act="check-update">' + icon('sync') + '<div class="grow"><div>' + (S.waitingSW ? 'Yeni sürüm hazır — yüklemek için dokun' : 'Güncellemeleri denetle') + '</div><div class="sub" id="updStatus">' + (S.waitingSW ? 'Verilerin silinmez' : 'Şu anki sürüm ' + VERSION) + '</div></div></div>';
   return acc('general', 'Genel', 'settings', general) +
     acc('look', 'Görünüm', 'today', lookBody(st)) +
     acc('titles', 'Başlıklar ve bölümler', 'tag', titles) +

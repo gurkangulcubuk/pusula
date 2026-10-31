@@ -692,3 +692,23 @@ body{font-size:calc(16px*var(--fs))}
 .mini-mail span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
 .icon-btn.spin svg{animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* ===== 1.9: Güncelleme notları ===== */
+.dn-btn{position:relative}
+.badge.soft{background:var(--accent);color:var(--accent-ink)}
+.dn-btn .badge{position:absolute;top:2px;right:0;min-width:17px;height:17px;border-radius:9px;font-size:10.5px;font-weight:800;display:grid;place-items:center;padding:0 4px}
+.dn-form{display:flex;flex-direction:column;gap:8px;margin-bottom:6px}
+.dn-form textarea{resize:vertical;min-height:84px}
+.dn-where{display:flex;align-items:center;gap:8px}.dn-where .input{flex:1;min-width:0}
+.dn-head{display:flex;align-items:center;gap:6px}
+.dn-head .count{background:var(--surface2);border-radius:99px;padding:0 8px;font-size:calc(12px*var(--fs))}
+.dn-list{display:flex;flex-direction:column}
+.dn-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.dn-row .grow{min-width:0}
+.dn-row.done .dn-text{text-decoration:line-through;color:var(--faint)}
+.dn-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:calc(11.5px*var(--fs));color:var(--faint);margin-bottom:2px}
+.dn-kind{font-weight:750;padding:1px 7px;border-radius:99px;background:var(--surface2)}
+.dn-kind.danger{color:var(--danger);background:color-mix(in srgb,var(--danger) 14%,transparent)}
+.dn-kind.accent{color:var(--accent);background:var(--accent-soft)}
+.dn-kind.ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
+.dn-text{white-space:pre-wrap;word-break:break-word;font-size:calc(14.5px*var(--fs))}
+.dn-actions{display:flex;gap:8px;margin:12px 0 4px}.dn-actions .btn{flex:1}
