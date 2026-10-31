@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.11.2';
+const VERSION = '1.12.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -704,6 +704,7 @@ const EN = {
   'Bekleyen görev yok. Yukarıdan hızlıca ekleyebilirsin.': 'No open tasks. Add one above.', 'Yaklaşan tarihli görev yok.': 'No upcoming tasks.', 'Henüz tamamlanan görev yok.': 'No completed tasks yet.',
   'Yeni görev': 'New task', 'Görevi düzenle': 'Edit task', 'Ne yapılacak?': 'What needs doing?', 'Not ekle (isteğe bağlı)': 'Add a note (optional)',
   'Tarih': 'Date', 'Saat': 'Time', '1 hafta sonra': 'In a week', 'Öncelik': 'Priority', 'Yok': 'None', 'Düşük': 'Low', 'Orta': 'Medium', 'Yüksek': 'High',
+  'Not şablonları': 'Note templates', 'Alışveriş, valiz, toplantı, günlük… aç-kapat, düzenle, kendi şablonunu ekle': 'Shopping, packing, meeting, journal… toggle, edit, add your own', 'Şablondan': 'From template', 'Liste': 'List',
   'Tekrar': 'Repeat', 'Tekrar yok': 'No repeat', 'Her gün': 'Every day', 'Hafta içi her gün': 'Every weekday', 'Her hafta': 'Every week', 'Her ay': 'Every month', 'Her yıl': 'Every year',
   'Etiketler': 'Tags', '+ yeni etiket': '+ new tag', 'Sil': 'Delete', 'Kaydet': 'Save', 'Kapat': 'Close', 'Tamamla': 'Complete', 'Ekle': 'Add', '+ Ekle': '+ Add',
   'Görev silindi': 'Task deleted', 'Görev tamamlandı': 'Task completed', 'Geri al': 'Undo', 'Etkinlik silindi': 'Event deleted', 'Hedef silindi': 'Goal deleted', 'Not silindi': 'Note deleted', 'Silindi': 'Deleted',
@@ -1530,7 +1531,7 @@ async function goalStep(id, dir) {
 }
 
 /* ----- Notlar ----- */
-const noteTitle = n => n.title || (n.kind === 'ink' ? 'Kalem notu' : (n.body || '').split('\n')[0].slice(0, 60) || 'Başlıksız not');
+const noteTitle = n => n.title || (n.kind === 'ink' ? 'Kalem notu' : (n.kind === 'list' ? (((n.items || [])[0] || {}).t || '') : (n.body || '').split('\n')[0]).slice(0, 60) || 'Başlıksız not');
 function viewNotes() {
   const tags = tagsOf('note');
   return '<div class="search">' + icon('search') + '<input id="noteSearch" placeholder="Notlarda ara" value="' + esc(S.noteQuery) + '" autocomplete="off" enterkeyhint="search"></div>' +
@@ -1758,6 +1759,7 @@ function viewSettings() {
     '<div class="set-sub">Posta</div><div class="set-row"><div class="grow"><div>Posta sekmesi</div><div class="sub">Gmail gelen kutusu, abonelikler, otomatik temizlik</div></div><button class="switch ' + (st.mailTab !== false ? 'on' : '') + '" data-act="mailtab-toggle" aria-label="Aç/kapat"></button></div>' +
     '<div class="set-sub">Araçlar</div><div class="set-row"><div class="grow"><div>Araçlar ve oyunlar sekmesi</div><div class="sub">Hesap makinesi, zamanlayıcı, odak sayacı, oyunlar…</div></div><button class="switch ' + (st.tools !== false ? 'on' : '') + '" data-act="tools-toggle" aria-label="Aç/kapat"></button></div>' +
     '<div class="set-sub">Bilgi</div><div class="set-row"><div class="grow">Notlar ve kalem notları</div><button class="switch ' + (st.notes ? 'on' : '') + '" data-act="notes-toggle" aria-label="Aç/kapat"></button></div>' +
+    '<div class="set-row click" data-act="tpl-manage">' + icon('template') + '<div class="grow"><div>Not şablonları</div><div class="sub">Alışveriş, valiz, toplantı, günlük… aç-kapat, düzenle, kendi şablonunu ekle</div></div>' + icon('right') + '</div>' +
     '<div class="set-row"><div class="grow"><div>Yeni kalem notu kâğıdı</div></div><div class="seg" style="max-width:240px">' + PAPERS.map(p => '<button class="' + (st.paper === p ? 'on' : '') + '" data-act="set-paper" data-k="' + p + '">' + { blank: 'Boş', lines: 'Çizgili', grid: 'Kareli' }[p] + '</button>').join('') + '</div></div>' +
     '<div class="set-sub">Etiketler</div><div class="set-row click" data-act="manage-tags" data-scope="task">' + icon('tag') + '<div class="grow">Görev etiketleri</div><span class="muted sm">' + tagsOf('task').length + '</span>' + icon('right') + '</div><div class="set-row click" data-act="manage-tags" data-scope="note">' + icon('tag') + '<div class="grow">Not etiketleri</div><span class="muted sm">' + tagsOf('note').length + '</span>' + icon('right') + '</div>';
   const data = '<div class="set-sub">Senkron</div><div class="set-row click" data-act="drive-open">' + icon('cloud') + '<div class="grow"><div>Google Drive</div><div class="sub" id="driveStatus">' + driveStatusHtml() + '</div></div>' + icon('right') + '</div>' +
@@ -1898,10 +1900,10 @@ const ACTIONS = {
     const sub = S.tab === 'plan' ? S.planSub : S.tab === 'info' ? S.infoSub : '';
     if (sub && sub.startsWith('c:')) return editCItem(null, sub.slice(2));
     if (S.tab === 'plan') { if (S.planSub === 'routines') return editRoutine(); if (S.planSub === 'tasks') return editTask(); if (S.planSub === 'calendar') return editEvent(null, S.calSel); return openQuick(['habit', 'goal']); }
-    if (S.tab === 'info') return openQuick(['note', 'ink']);
+    if (S.tab === 'info') return openQuick(['note', 'list', 'ink', 'tpl']);
     openQuick();
   },
-  'quick': el => { const k = el.dataset.k; ({ task: () => editTask(), event: () => editEvent(null, S.tab === 'plan' ? S.calSel : today()), note: () => openNote(), ink: () => openInk(), habit: () => editHabit(), goal: () => editGoal(), routine: () => editRoutine() })[k](); },
+  'quick': el => { const k = el.dataset.k; ({ task: () => editTask(), event: () => editEvent(null, S.tab === 'plan' ? S.calSel : today()), note: () => openNote(), list: () => openNote(null, { kind: 'list' }), tpl: () => openTplPicker(), ink: () => openInk(), habit: () => editHabit(), goal: () => editGoal(), routine: () => editRoutine() })[k](); },
   'close-sheet': () => closeSheet(),
   'toast-action': () => { const fn = S.toastAction; S.toastAction = null; $('#toast').classList.remove('show'); if (fn) fn(); },
   'seg-pick': el => { $$('button', el.parentNode).forEach(b => b.classList.toggle('on', b === el)); },
@@ -1951,7 +1953,7 @@ const ACTIONS = {
   'open-note': el => { const n = S.items.get(el.dataset.id); if (n) openNote(n); },
   'note-tagf': el => { S.noteTag = S.noteTag === el.dataset.id ? null : el.dataset.id; render(); },
   'note-pin': el => { const E = S.noteEd; if (!E) return; E.d.pinned = !E.d.pinned; el.classList.toggle('on', E.d.pinned); noteChanged(); },
-  'note-delete': async () => { const E = S.noteEd; if (!E) return; if ((E.d.title || E.d.body) && !ask('Bu not silinsin mi?')) return; E.deleted = true; const it = S.items.get(E.d.id); closeSheet(); if (it) { await remove(it); toast('Not silindi', { label: 'Geri al', fn: async () => { it.deleted = false; await save(it); } }); } },
+  'note-delete': async () => { const E = S.noteEd; if (!E) return; if (!(typeof noteEmpty === 'function' ? noteEmpty(E.d) : !(E.d.title || E.d.body)) && !ask('Bu not silinsin mi?')) return; E.deleted = true; const it = S.items.get(E.d.id); closeSheet(); if (it) { await remove(it); toast('Not silindi', { label: 'Geri al', fn: async () => { it.deleted = false; await save(it); } }); } },
   // kalem
   'ink-tool': el => { S.ink.tool = el.dataset.k; inkBarRefresh(); },
   'ink-color': el => { S.ink.color = el.dataset.c; if (S.ink.tool === 'eraser') S.ink.tool = 'pen'; inkBarRefresh(); },
@@ -2023,7 +2025,7 @@ function openQuick(only) {
   const st = settings(); const opts = [];
   if (planOn('tasks')) opts.push(['task', 'Görev', 'task']);
   if (planOn('calendar')) opts.push(['event', 'Etkinlik', 'event']);
-  if (st.notes) { opts.push(['note', 'Not', 'note']); opts.push(['ink', 'Kalem notu', 'pen']); }
+  if (st.notes) { opts.push(['note', 'Not', 'note']); opts.push(['list', 'Liste', 'list']); opts.push(['ink', 'Kalem notu', 'pen']); opts.push(['tpl', 'Şablondan', 'template']); }
   if (planOn('routines')) opts.push(['routine', 'Rutin', 'repeat']);
   if (planOn('habits')) { opts.push(['habit', 'Alışkanlık', 'habit']); opts.push(['goal', 'Hedef', 'goal']); }
   const shown = only ? opts.filter(o => only.includes(o[0])) : opts;

@@ -176,7 +176,7 @@ function viewInbox() {
 function mailRow(m) {
   const un = m.labels.includes('UNREAD'), st = m.labels.includes('STARRED'), sel = Mail.selMode && Mail.sel.has(m.id);
   return '<div class="mrow ' + (un ? 'unread ' : '') + (sel ? 'picked' : '') + '">' + (Mail.selMode ? '<button class="mpick" data-act="gm-pick" data-id="' + m.id + '" aria-label="Seç">' + (sel ? icon('check', 'sm') : '') + '</button>' : '') + '<button class="mrow-main" data-act="' + (Mail.selMode ? 'gm-pick' : 'gm-open') + '" data-id="' + m.id + '"><div class="mrow-top"><span class="mrow-from u">' + esc(m.from.name || m.from.email) + '</span><span class="mrow-date">' + gmWhen(m.date) + '</span></div><div class="mrow-subj u">' + esc(m.subject || tr('(konusuz)')) + '</div><div class="mrow-snip u">' + esc(m.snippet) + '</div></button>' +
-    '<div class="mrow-acts"><button class="icon-btn ' + (st ? 'on star' : '') + '" data-act="gm-star" data-id="' + m.id + '" aria-label="Yıldız">' + icon('star', 'sm') + '</button><button class="icon-btn" data-act="gm-archive" data-id="' + m.id + '" aria-label="Arşivle">' + icon('archive', 'sm') + '</button></div></div>';
+    '<div class="mrow-acts"><button class="icon-btn ' + (st ? 'on star' : '') + '" data-act="gm-star" data-id="' + m.id + '" aria-label="Yıldız">' + icon('star', 'sm') + '</button><button class="icon-btn" data-act="gm-archive" data-id="' + m.id + '" aria-label="Arşivle">' + icon('archive', 'sm') + '</button><button class="icon-btn" data-act="gm-trash" data-id="' + m.id + '" aria-label="Çöpe at">' + icon('trash', 'sm') + '</button></div></div>';
 }
 /* ----- toplu seçim ----- */
 function selBar() {
