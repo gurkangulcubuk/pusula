@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.7.2';
+const VERSION = '1.8.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -129,9 +129,9 @@ async function remove(item, opts) { item.deleted = true; return save(item, opts)
 const LOOK_DEFAULTS = { theme: 'dark', themeId: 'notr', tone: 'net', accent: 'theme', cards: 'filled', font: 'plex', fs: 1, density: 'normal', tabLabels: true, titleStyle: 'classic' };
 const DEFAULT_SETTINGS = Object.assign({
   id: 'settings', type: 'settings', name: '', paper: 'lines', look: 4, lang: 'tr', titles: {}, custom: [], alerts: {},
-  today: [{ k: 'tasks', on: true }, { k: 'events', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }, { k: 'goals', on: true }, { k: 'pinned', on: true }],
+  today: [{ k: 'tasks', on: true }, { k: 'events', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }, { k: 'goals', on: true }, { k: 'pinned', on: true }, { k: 'mail', on: true }],
   plan: [{ k: 'tasks', on: true }, { k: 'calendar', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }],
-  notes: true, tools: true, updated: 0
+  notes: true, tools: true, mailTab: true, gmail: {}, updated: 0
 }, LOOK_DEFAULTS);
 // Temalar (1.7): nötr zemin + canlı vurgu. Zemin, "Ton yoğunluğu" ayarına göre temanın rengine boyanır.
 // a = [vurgu, vurgu üstü yazı]
@@ -202,7 +202,8 @@ const TITLES = {
   notes: { tr: ['Notlar', 'Aklımda kalsın'], en: ['Notes', 'Mental sticky notes'] },
   pinned: { tr: ['Sabitlenen notlar', 'Buzdolabı kapağı'], en: ['Pinned notes', 'Fridge door'] },
   routines: { tr: ['Rutinler', 'Vakti geldi'], en: ['Routines', 'It’s about time'] },
-  tools: { tr: ['Araçlar', 'Alet çantası'], en: ['Tools', 'Toolbox'] }
+  tools: { tr: ['Araçlar', 'Alet çantası'], en: ['Tools', 'Toolbox'] },
+  mail: { tr: ['Posta', 'Postacı'], en: ['Mail', 'The mailman'] }
 };
 // 1.5'e kadar kullanılan ironik isimler: ironik stildeki kullanıcıda gördüğü isimler aynen korunur
 const OLD_IRONIC = {
@@ -223,7 +224,8 @@ const TITLE_SUGGEST = {
   goals: { tr: ['Zirve listesi', 'Uzun vade', 'Hedef tahtası', 'Yapacağım, göreceksin'], en: ['Summit list', 'The long game', 'Target board', 'Watch me'] },
   notes: { tr: ['Aklımda kalsın', 'Defter', 'Beyin fırtınası', 'Not kâğıtları'], en: ['Mental sticky notes', 'Notebook', 'Brainstorm', 'Paper scraps'] },
   pinned: { tr: ['Buzdolabı kapağı', 'Masada dursun', 'Baş köşe', 'Önemli olanlar'], en: ['Fridge door', 'On the desk', 'Place of honor', 'The important ones'] },
-  tools: { tr: ['Alet çantası', 'İsviçre çakısı', 'Oyun parkı', 'Mola köşesi'], en: ['Toolbox', 'Swiss army knife', 'Playground', 'Break corner'] }
+  tools: { tr: ['Alet çantası', 'İsviçre çakısı', 'Oyun parkı', 'Mola köşesi'], en: ['Toolbox', 'Swiss army knife', 'Playground', 'Break corner'] },
+  mail: { tr: ['Postacı', 'Mektup var', 'Zarf açacağı', 'Kim yazmış'], en: ['The mailman', 'You’ve got mail', 'Letter opener', 'Who wrote'] }
 };
 const isEn = () => settings().lang === 'en';
 function T(key) { const st = settings(); const c = (st.titles || {})[key]; if (c) return c; if (st.titleStyle === 'ironic' && st.ironicKeep && st.ironicKeep[key]) return st.ironicKeep[key]; const t = TITLES[key]; if (!t) return key; return t[isEn() ? 'en' : 'tr'][st.titleStyle === 'ironic' ? 1 : 0]; }
@@ -357,7 +359,7 @@ const eventSort = (a, b) => (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0) || (a.start 
 const GDRIVE_FILE = 'pusula-data.json';
 const GSCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar';
-function gScopes(extra) { const set = new Set(); if (Drive.on()) set.add(GSCOPE); if (typeof Cal !== 'undefined' && Cal.on()) set.add(GCAL_SCOPE); (extra || []).forEach(x => set.add(x)); if (!set.size) set.add(GSCOPE); return Array.from(set).join(' '); }
+function gScopes(extra) { const set = new Set(); if (Drive.on()) set.add(GSCOPE); if (typeof Cal !== 'undefined' && Cal.on()) set.add(GCAL_SCOPE); if (typeof Mail !== 'undefined') Mail.scopes().forEach(x => set.add(x)); (extra || []).forEach(x => set.add(x)); if (!set.size) set.add(GSCOPE); return Array.from(set).join(' '); }
 const Drive = {
   cfg: null, token: null, exp: 0, busy: false, again: false, status: 'off', error: '', timer: null, gisP: null, nagged: false,
   async load() {
@@ -403,7 +405,7 @@ const Drive = {
     if (!r.ok) {
       let m = 'Google hatası ' + r.status; try { const j = await r.json(); m = (j.error && j.error.message) || m; } catch (e) { /* yok */ }
       if (/has not been used|is disabled|accessNotConfigured/i.test(m)) m = 'Google Cloud’da bu API kapalı. console.cloud.google.com → PUSULA → APIs & Services → Library’den açman gerekiyor.';
-      if (r.status === 403 && /insufficient/i.test(m)) { this.granted = (this.granted || '').replace(GCAL_SCOPE, ''); const e = new Error('Google izni eksik, tekrar bağlan'); e.auth = true; throw e; }
+      if (r.status === 403 && /insufficient/i.test(m)) { this.granted = /gmail/.test(url) ? (this.granted || '').split(' ').filter(x => !/gmail/.test(x)).join(' ') : (this.granted || '').replace(GCAL_SCOPE, ''); const e = new Error('Google izni eksik, tekrar bağlan'); e.auth = true; throw e; }
       const e = new Error(m); e.status = r.status; throw e;
     }
     return r;
@@ -475,9 +477,10 @@ const Drive = {
   }
 };
 /* Drive ve Takvim için tek eşitleme girişi. interactive=true ise dokunuşla Google oturumu yenilenir. */
-function gNeedsToken() { const need = []; if (Drive.on()) need.push(GSCOPE); if (Cal.on()) need.push(GCAL_SCOPE); return need.length > 0 && !need.every(x => Drive.tokenOk(x)); }
+function gNeedsToken() { const need = []; if (Drive.on()) need.push(GSCOPE); if (Cal.on()) need.push(GCAL_SCOPE); if (typeof Mail !== 'undefined' && Mail.on()) need.push(Mail.scopes()[0]); return need.length > 0 && !need.every(x => Drive.tokenOk(x)); }
 async function gSync(interactive) {
-  if (!Drive.on() && !Cal.on()) return;
+  const gm = typeof Mail !== 'undefined' && Mail.on();
+  if (!Drive.on() && !Cal.on() && !gm) return;
   if (!navigator.onLine) { if (Drive.on()) Drive.setStatus('offline'); return; }
   if (gNeedsToken()) {
     if (!interactive) {
@@ -489,6 +492,7 @@ async function gSync(interactive) {
   }
   if (Drive.on()) await Drive.run(false);
   if (Cal.on()) await Cal.sync();
+  if (gm) await Mail.refreshCounts();
 }
 
 /* ===================== Google Takvim ===================== */
@@ -863,6 +867,7 @@ const TABS = [
   { k: 'today', icon: 'today' },
   { k: 'plan', icon: 'plan' },
   { k: 'info', icon: 'info' },
+  { k: 'mail', icon: 'mail' },
   { k: 'tools', icon: 'tools' }
 ];
 function planSubs() {
@@ -873,7 +878,7 @@ function infoSubs() {
   const a = settings().notes ? [{ k: 'notes', label: TL('notes') }] : [];
   return a.concat(customMods().filter(m => m.home === 'info').map(m => ({ k: 'c:' + m.id, label: m.name })));
 }
-function visibleTabs() { return TABS.filter(t => (t.k !== 'plan' || planSubs().length) && (t.k !== 'info' || infoSubs().length) && (t.k !== 'tools' || settings().tools !== false)); }
+function visibleTabs() { return TABS.filter(t => (t.k !== 'plan' || planSubs().length) && (t.k !== 'info' || infoSubs().length) && (t.k !== 'tools' || settings().tools !== false) && (t.k !== 'mail' || settings().mailTab !== false)); }
 const TAB_KEYS = ['today', 'plan', 'info', 'tools', 'settings'];
 const subTitle = k => k && k.startsWith('c:') ? ((cmod(k.slice(2)) || {}).name || '') : T(k);
 function render() {
@@ -885,6 +890,7 @@ function render() {
   if (S.tab === 'today') { title = T('today'); body = viewToday(); }
   else if (S.tab === 'plan') { body = viewPlan(); title = subTitle(S.planSub); if (S.planSub === 'calendar') actions = '<button class="link" data-act="cal-today">Bugün</button>'; }
   else if (S.tab === 'info') { body = viewInfo(); title = subTitle(S.infoSub); }
+  else if (S.tab === 'mail') { title = T('mail'); body = typeof viewMail === 'function' ? viewMail() : ''; }
   else if (S.tab === 'tools') { title = T('tools'); body = typeof viewTools === 'function' ? viewTools() : ''; }
   else { title = T('settings'); body = viewSettings(); }
   if ((Drive.on() || Cal.on()) && S.tab !== 'settings') actions += '<button id="syncBtn" class="icon-btn ' + (Drive.status === 'syncing' ? 'spin ' : '') + (Drive.status === 'needauth' || Drive.status === 'error' ? 'warn' : '') + '" data-act="sync-now" aria-label="Eşitle">' + icon('sync') + '</button>';
@@ -895,7 +901,7 @@ function render() {
   $('#pageTitle').textContent = title;
   $('#topActions').innerHTML = actions;
   $('#view').innerHTML = body;
-  $('#fab').hidden = S.tab === 'settings' || S.tab === 'tools';
+  $('#fab').hidden = S.tab === 'settings' || S.tab === 'tools' || S.tab === 'mail';
   translateTree(document.body);
 }
 
@@ -925,6 +931,7 @@ function computeAlerts() {
   if (on('goals') && planOn('habits')) list('goal').forEach(g => { if (g.deadline && goalPct(g) < 100) { const d = daysBetween(t0, g.deadline); if (d >= 0 && d <= 7) out.push({ id: 'gl' + g.id, lvl: 'warn', icon: 'goal', text: Lx('“' + g.title + '” için ' + d + ' gün kaldı', d + ' days left for “' + g.title + '”'), go: 'habits' }); } });
   if (on('backup') && !Drive.on()) { const last = +lsGet('pusula.lastExport', '0'); if (!last || Date.now() - last > 7 * 86400000) out.push({ id: 'backup', lvl: 'warn', icon: 'download', text: Lx(last ? 'Son dış yedek 1 haftadan eski' : 'Verilerinin henüz dış yedeği yok', last ? 'Last external backup is over a week old' : 'No external backup of your data yet'), act: 'share-backup', btn: Lx('Yedekle', 'Back up') }); }
   if (on('sync') && (Drive.on() || Cal.on()) && (gNeedsToken() || Drive.status === 'error' || Cal.status === 'error')) out.push({ id: 'sync', lvl: 'warn', icon: 'sync', text: Lx('Google eşitlemesi bekliyor', 'Google sync is waiting'), act: 'sync-now', btn: Lx('Eşitle', 'Sync') });
+  if (typeof Mail !== 'undefined' && Mail.on() && gopt('bell') && Mail.important) out.push({ id: 'gm' + Mail.important, lvl: 'info', icon: 'mail', text: Lx(Mail.important + ' okunmamış önemli mail', Mail.important + ' unread important emails'), go: 'mail' });
   if (on('update') && S.waitingSW) out.push({ id: 'update', lvl: 'info', icon: 'download', text: Lx('Yeni sürüm hazır', 'New version ready'), act: 'check-update', btn: Lx('Güncelle', 'Update') });
   const dis = alertDismissed(); const rank = { danger: 0, warn: 1, info: 2 };
   return out.filter(a => !dis.includes(a.id)).sort((a, b) => rank[a.lvl] - rank[b.lvl]);
@@ -1051,7 +1058,7 @@ function viewToday() {
   if (planOn('calendar')) { const n = list('event').filter(e => e.date === t0).length; pills.push('<button class="pill" data-act="go" data-k="calendar"><b>' + n + '</b> etkinlik</button>'); }
   if (planOn('habits')) { const hs = list('habit').filter(x => habitScheduled(x, t0)); const d = hs.filter(x => (x.log || {})[t0]).length; if (hs.length) pills.push('<button class="pill" data-act="go" data-k="habits"><b>' + d + '/' + hs.length + '</b> alışkanlık</button>'); }
   let html = alertBanner() + '<div class="hero"><div class="hero-greet">' + greet + (st.name ? ', ' + esc(st.name) : '') + '</div><div class="hero-date">' + fmtLong(t0) + '</div><div class="hero-sum">' + pills.join('') + '</div></div><div class="grid-cards">';
-  const avail = { tasks: planOn('tasks'), events: planOn('calendar'), routines: planOn('routines'), habits: planOn('habits'), goals: planOn('habits'), pinned: st.notes };
+  const avail = { tasks: planOn('tasks'), events: planOn('calendar'), routines: planOn('routines'), habits: planOn('habits'), goals: planOn('habits'), pinned: st.notes, mail: typeof Mail !== 'undefined' && Mail.on() && gopt('todayCard') };
   customMods().forEach(m => { avail['c:' + m.id] = true; });
   st.today.forEach(c => { if (!c.on || !avail[c.k]) return; if (String(c.k).startsWith('c:')) html += cardCustom(c.k.slice(2)); else if (TODAY_CARDS[c.k]) html += TODAY_CARDS[c.k](); });
   html += '</div>';
@@ -1643,7 +1650,7 @@ function inkBind() {
 }
 
 /* ----- Ayarlar ----- */
-const CARD_LABELS = { tasks: 'Bugünün görevleri', events: 'Bugünkü etkinlikler', routines: 'Yaklaşan rutinler', habits: 'Alışkanlıklar', goals: 'Hedefler', pinned: 'Sabitlenen notlar' };
+const CARD_LABELS = { tasks: 'Bugünün görevleri', events: 'Bugünkü etkinlikler', routines: 'Yaklaşan rutinler', habits: 'Alışkanlıklar', goals: 'Hedefler', pinned: 'Sabitlenen notlar', mail: 'Posta (Gmail bağlıyken)' };
 const MOD_LABELS = { tasks: 'Görevler', calendar: 'Takvim', routines: 'Rutinler', habits: 'Alışkanlıklar & hedefler' };
 function orderRows(listKey, arr, labels) {
   return arr.map((m, i) => '<div class="set-row"><div class="grow">' + (String(m.k).startsWith('c:') ? '<span class="u">' + esc((cmod(m.k.slice(2)) || {}).name || '') + '</span>' : labels[m.k]) + '</div><div class="order-btns"><button class="icon-btn" data-act="list-move" data-list="' + listKey + '" data-i="' + i + '" data-dir="-1" aria-label="Yukarı" ' + (i === 0 ? 'disabled' : '') + '>' + icon('up') + '</button><button class="icon-btn" data-act="list-move" data-list="' + listKey + '" data-i="' + i + '" data-dir="1" aria-label="Aşağı" ' + (i === arr.length - 1 ? 'disabled' : '') + '>' + icon('down') + '</button></div><button class="switch ' + (m.on ? 'on' : '') + '" data-act="list-toggle" data-list="' + listKey + '" data-i="' + i + '" aria-label="Aç/kapat"></button></div>').join('');
@@ -1666,6 +1673,7 @@ function viewSettings() {
     (customMods().length ? customMods().map(m => '<div class="set-row cmod-row"><div class="grow"><input class="input slim" data-cmod-name="' + m.id + '" value="' + esc(m.name) + '" autocomplete="off"><div class="sub"><span>' + CTYPES[m.type][0] + '</span> · <span>' + (m.home === 'info' ? 'Bilgi sekmesinde' : 'Planla sekmesinde') + '</span></div></div><button class="icon-btn" data-act="cmod-home" data-id="' + m.id + '" aria-label="Sekmeyi değiştir">' + icon(m.home === 'info' ? 'info' : 'plan') + '</button><button class="icon-btn" data-act="cmod-del" data-id="' + m.id + '" aria-label="Sil">' + icon('trash') + '</button></div>').join('') : '<p class="muted sm" style="margin:4px 0 8px">Henüz yok. Liste, not defteri, sayaç ya da kayıt defteri olarak kendi bölümünü ekle.</p>') +
     '<button class="btn block" data-act="cmod-new">' + icon('plus') + ' Yeni bölüm ekle</button>';
   const modules = '<div class="set-sub">Planla</div>' + orderRows('plan', st.plan, MOD_LABELS) +
+    '<div class="set-sub">Posta</div><div class="set-row"><div class="grow"><div>Posta sekmesi</div><div class="sub">Gmail gelen kutusu, abonelikler, otomatik temizlik</div></div><button class="switch ' + (st.mailTab !== false ? 'on' : '') + '" data-act="mailtab-toggle" aria-label="Aç/kapat"></button></div>' +
     '<div class="set-sub">Araçlar</div><div class="set-row"><div class="grow"><div>Araçlar ve oyunlar sekmesi</div><div class="sub">Hesap makinesi, zamanlayıcı, odak sayacı, oyunlar…</div></div><button class="switch ' + (st.tools !== false ? 'on' : '') + '" data-act="tools-toggle" aria-label="Aç/kapat"></button></div>' +
     '<div class="set-sub">Bilgi</div><div class="set-row"><div class="grow">Notlar ve kalem notları</div><button class="switch ' + (st.notes ? 'on' : '') + '" data-act="notes-toggle" aria-label="Aç/kapat"></button></div>' +
     '<div class="set-row"><div class="grow"><div>Yeni kalem notu kâğıdı</div></div><div class="seg" style="max-width:240px">' + PAPERS.map(p => '<button class="' + (st.paper === p ? 'on' : '') + '" data-act="set-paper" data-k="' + p + '">' + { blank: 'Boş', lines: 'Çizgili', grid: 'Kareli' }[p] + '</button>').join('') + '</div></div>' +
@@ -1685,6 +1693,7 @@ function viewSettings() {
     acc('alerts', 'Uyarılar', 'bell', '<p class="muted sm" style="margin:10px 0 4px">Sağ üstteki zilde ve Bugün ekranının üstündeki şeritte görünür. Bir uyarıyı gizlersen o gün bir daha gösterilmez.</p>' +
       '<div class="set-row"><div class="grow"><div>Bugün ekranında uyarı şeridi</div></div><button class="switch ' + ((st.alerts || {}).banner !== false ? 'on' : '') + '" data-act="alert-toggle" data-k="banner" aria-label="Aç/kapat"></button></div>' +
       Object.keys(ALERT_TYPES).map(k => '<div class="set-row"><div class="grow">' + ALERT_TYPES[k] + '</div><button class="switch ' + ((st.alerts || {})[k] !== false ? 'on' : '') + '" data-act="alert-toggle" data-k="' + k + '" aria-label="Aç/kapat"></button></div>').join('')) +
+    (typeof gmailSettingsBody === 'function' ? acc('gmail', 'Gmail', 'mail', gmailSettingsBody()) : '') +
     acc('modules', 'Modüller ve etiketler', 'plan', modules) +
     acc('data', 'Senkron ve yedek', 'cloud', data) +
     acc('app', 'Uygulama', 'sync', app) +
@@ -1801,7 +1810,7 @@ const ACTIONS = {
   'close-settings': () => { S.tab = S.prevTab && S.prevTab !== 'settings' ? S.prevTab : 'today'; window.scrollTo(0, 0); render(); },
   'plan-sub': el => { S.planSub = el.dataset.k; window.scrollTo(0, 0); render(); },
   'info-sub': el => { S.infoSub = el.dataset.k; window.scrollTo(0, 0); render(); },
-  'go': el => { const k = el.dataset.k; if (k.startsWith('c:')) { const m = cmod(k.slice(2)); if (!m) return; if (m.home === 'info') { S.tab = 'info'; S.infoSub = k; } else { S.tab = 'plan'; S.planSub = k; } window.scrollTo(0, 0); return render(); } if (k === 'notes') { S.tab = 'info'; S.infoSub = 'notes'; } else { S.tab = 'plan'; S.planSub = k; if (k === 'calendar') { S.calSel = today(); S.calMonth = null; } if (k === 'tasks') S.taskFilter = 'open'; } window.scrollTo(0, 0); render(); },
+  'go': el => { const k = el.dataset.k; if (k === 'mail') { S.tab = 'mail'; S.mailSub = 'inbox'; window.scrollTo(0, 0); return render(); } if (k.startsWith('c:')) { const m = cmod(k.slice(2)); if (!m) return; if (m.home === 'info') { S.tab = 'info'; S.infoSub = k; } else { S.tab = 'plan'; S.planSub = k; } window.scrollTo(0, 0); return render(); } if (k === 'notes') { S.tab = 'info'; S.infoSub = 'notes'; } else { S.tab = 'plan'; S.planSub = k; if (k === 'calendar') { S.calSel = today(); S.calMonth = null; } if (k === 'tasks') S.taskFilter = 'open'; } window.scrollTo(0, 0); render(); },
   'fab': () => {
     const sub = S.tab === 'plan' ? S.planSub : S.tab === 'info' ? S.infoSub : '';
     if (sub && sub.startsWith('c:')) return editCItem(null, sub.slice(2));
@@ -1879,6 +1888,7 @@ const ACTIONS = {
   'list-toggle': el => { const arr = settings()[el.dataset.list]; const m = arr[+el.dataset.i]; m.on = !m.on; saveSettings(); },
   'list-move': el => { const arr = settings()[el.dataset.list]; const i = +el.dataset.i, j = i + (+el.dataset.dir); if (j < 0 || j >= arr.length) return; const t = arr[i]; arr[i] = arr[j]; arr[j] = t; saveSettings(); },
   'notes-toggle': () => { const st = settings(); st.notes = !st.notes; saveSettings(); },
+  'mailtab-toggle': () => { const st = settings(); st.mailTab = st.mailTab === false; saveSettings(); },
   'tools-toggle': () => { const st = settings(); st.tools = st.tools === false; saveSettings(); },
   'manage-tags': el => manageTags(el.dataset.scope),
   'tag-delete': async el => { const t = S.items.get(el.dataset.id); if (!t || !ask('“' + t.name + '” etiketi silinsin mi? (Notlar ve görevler silinmez)')) return; await remove(t, { silent: true }); manageTags(el.dataset.scope); },
@@ -2037,6 +2047,7 @@ async function init() {
   startTranslator();
   await Drive.load();
   await Cal.load();
+  if (typeof Mail !== 'undefined') await Mail.load();
   DB.delMeta('sync').catch(() => {});
   render();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -2052,7 +2063,7 @@ async function init() {
     if (S.lastDay !== today()) { autoSnapshot(); S.lastDay = today(); S.calSel = today(); S.calMonth = null; if (!S.ink && !S.noteEd) render(); }
   });
   setInterval(() => { if (document.visibilityState === 'visible') gSync(false); }, 180000);
-  if (Drive.on() || Cal.on()) { if (navigator.onLine) Drive.loadGis().catch(() => {}); gSync(false); }
+  if (Drive.on() || Cal.on() || (typeof Mail !== 'undefined' && Mail.on())) { if (navigator.onLine) Drive.loadGis().catch(() => {}); gSync(false); }
   if (window.matchMedia) { const mq = matchMedia('(prefers-color-scheme: light)'); const fn = () => { if (settings().theme === 'system') { thumbCache.clear(); render(); } }; if (mq.addEventListener) mq.addEventListener('change', fn); }
 }
-init();
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

@@ -637,3 +637,58 @@ body{font-size:calc(16px*var(--fs))}
   #sdWrap>.tool-actions{grid-column:2;margin:10px 0}
   #sdWrap>.g-stats{grid-column:2}
 }
+/* ===== 1.8: Posta ===== */
+.mail-empty{text-align:center;padding:30px 10px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.mail-empty>svg.i{width:44px;height:44px;color:var(--accent)}
+.mail-empty h3{margin:0;font-size:calc(19px*var(--fs))}
+.mail-search{margin-bottom:10px}
+.mail-cats{margin-bottom:10px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+.mail-cats::-webkit-scrollbar{display:none}
+.mail-cats .chip{flex:0 0 auto}
+.mail-bulk{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.mail-tools{display:flex;align-items:center;justify-content:space-between;margin:0 2px 4px}
+.mail-note{margin:2px 2px 10px}
+.mail-list{padding:0;overflow:hidden}
+.mrow{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
+.mrow:last-child{border-bottom:0}
+.mrow-main{flex:1;min-width:0;text-align:left;padding:11px 4px 11px 14px;display:flex;flex-direction:column;gap:2px}
+.mrow-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.mrow-from{font-size:calc(14.5px*var(--fs));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow-date{font-size:calc(12px*var(--fs));color:var(--faint);flex:0 0 auto}
+.mrow-subj{font-size:calc(14px*var(--fs));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow-snip{font-size:calc(13px*var(--fs));color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow.unread .mrow-from,.mrow.unread .mrow-subj{font-weight:700}
+.mrow.unread .mrow-main{box-shadow:inset 3px 0 0 var(--accent)}
+.mrow-acts{display:flex;flex-direction:column;justify-content:center;padding-right:6px}
+.mrow-acts .icon-btn{width:36px;height:36px}
+.icon-btn.star,.icon-btn.star svg{color:#E3A008}
+.icon-btn.star svg path{fill:#E3A008}
+.mail-read{padding-top:0}
+.mail-head{padding:4px 2px 10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:2px;word-break:break-word}
+.mail-acts{display:flex;gap:6px;overflow-x:auto;padding:10px 0;scrollbar-width:none;max-width:none!important}
+.mail-acts::-webkit-scrollbar{display:none}
+.mact{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:68px;padding:8px 6px;border-radius:12px;background:var(--surface2);border:1px solid var(--line);font-size:calc(11.5px*var(--fs));color:var(--muted)}
+.mact svg.i{color:var(--accent)}
+.mail-body{margin-top:4px}
+.mail-frame{width:100%;height:calc(100dvh - 230px);min-height:320px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.mail-text{white-space:pre-wrap;word-break:break-word;line-height:1.5;font-size:calc(15px*var(--fs))}
+.mail-text a,.mail-files a{color:var(--accent)}
+.mail-files{font-size:calc(13px*var(--fs));color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mail-reply{background:var(--surface2);border:1px solid var(--line);border-radius:14px;padding:12px;margin:4px 0 10px;display:flex;flex-direction:column;gap:8px}
+.mail-reply textarea{resize:vertical;min-height:110px}
+.mail-reply .tool-actions{margin:0;justify-content:flex-end}
+.srow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:11px 14px;border-bottom:1px solid var(--line)}
+.srow:last-child{border-bottom:0}
+.srow .grow{min-width:0}.srow .grow>div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow-n{display:flex;flex-direction:column;align-items:center;min-width:44px}
+.srow-n b{font-size:calc(18px*var(--fs))}.srow-n span{font-size:calc(11px*var(--fs));color:var(--muted)}
+.srow-tags{display:flex;gap:6px;margin-top:3px}
+.badge-s{font-size:calc(11px*var(--fs));padding:1px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-weight:650}
+.badge-s.ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.sub-acts{display:flex;flex-direction:column;gap:2px;margin:10px 0}
+.mail-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}
+.mini-mail{display:flex;gap:8px;text-align:left;padding:7px 0;border-top:1px solid var(--line);font-size:calc(14px*var(--fs));min-width:0}
+.mini-mail b{flex:0 0 auto;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mini-mail span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.icon-btn.spin svg{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
