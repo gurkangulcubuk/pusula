@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -65,7 +65,8 @@ const ICONS = {
   tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   upload: '<path d="M12 20V9M7 14l5-5 5 5M5 4h14"/>',
-  cloud: '<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 8.5a4.5 4.5 0 0 1-.5 9.5z"/>'
+  cloud: '<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 8.5a4.5 4.5 0 0 1-.5 9.5z"/>',
+  bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>'
 };
 const icon = (n, cls) => '<svg class="i ' + (cls || '') + '" viewBox="0 0 24 24" aria-hidden="true">' + (ICONS[n] || '') + '</svg>';
 
@@ -124,32 +125,26 @@ async function save(item, opts) {
 async function remove(item, opts) { item.deleted = true; return save(item, opts); }
 
 /* ===================== Ayarlar & tema ===================== */
-const LOOK_DEFAULTS = { theme: 'dark', darkPal: 'gece', lightPal: 'kagit', accent: 'theme', cards: 'plain', font: 'plex', fs: 1, density: 'normal', tabLabels: true, titleStyle: 'classic' };
+const LOOK_DEFAULTS = { theme: 'dark', themeId: 'notr', accent: 'theme', cards: 'filled', font: 'plex', fs: 1, density: 'normal', tabLabels: true, titleStyle: 'classic' };
 const DEFAULT_SETTINGS = Object.assign({
-  id: 'settings', type: 'settings', name: '', paper: 'lines', look: 3, lang: 'tr', titles: {}, custom: [],
+  id: 'settings', type: 'settings', name: '', paper: 'lines', look: 4, lang: 'tr', titles: {}, custom: [], alerts: {},
   today: [{ k: 'tasks', on: true }, { k: 'events', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }, { k: 'goals', on: true }, { k: 'pinned', on: true }],
   plan: [{ k: 'tasks', on: true }, { k: 'calendar', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }],
   notes: true, updated: 0
 }, LOOK_DEFAULTS);
-// Temalar: c = [zemin, yüzey, yüzey 2, yazı, soluk yazı, çok soluk, çizgi], a = [temanın vurgu rengi, vurgu üstü yazı]
-const PALETTES = {
-  dark: {
-    gece: { tr: 'Gece', en: 'Night', c: ['#0E0E0F', '#151517', '#1C1C1F', '#EDEDED', '#A0A0A0', '#6E6E6E', '#262628'], a: ['#EDEDED', '#0E0E0F'] },
-    orman: { tr: 'Orman', en: 'Forest', c: ['#0F1712', '#15201A', '#1B2A21', '#E3ECE5', '#9DB3A4', '#6C8574', '#26372C'], a: ['#7CC18F', '#0B140E'] },
-    ahsap: { tr: 'Ahşap', en: 'Woody', c: ['#1A1410', '#231B15', '#2C221A', '#EFE4D8', '#B4A08C', '#85715F', '#3A2D22'], a: ['#D4A373', '#1A1108'] },
-    okyanus: { tr: 'Okyanus', en: 'Ocean', c: ['#0B1520', '#102030', '#16293B', '#E1EBF4', '#94AFC6', '#647F97', '#1F3448'], a: ['#5FB3E6', '#06121D'] },
-    sarap: { tr: 'Şarap', en: 'Wine', c: ['#1A0F13', '#24151B', '#2E1B23', '#F0E3E7', '#BC9AA6', '#8A6875', '#3B232D'], a: ['#E07A95', '#1E0910'] },
-    grafit: { tr: 'Grafit', en: 'Graphite', c: ['#17191C', '#1E2125', '#252930', '#E6E8EA', '#9BA1A8', '#6C737B', '#2D3238'], a: ['#B8C2CC', '#111418'] }
-  },
-  light: {
-    kagit: { tr: 'Kâğıt', en: 'Paper', c: ['#F7F5F0', '#FBFAF7', '#EFEBE3', '#22201C', '#6B665D', '#A09A8F', '#E3DED4'], a: ['#22201C', '#FBFAF7'] },
-    kum: { tr: 'Kum', en: 'Sand', c: ['#F3ECE2', '#FAF6F0', '#EADFCF', '#2B2118', '#75614D', '#A69078', '#E0D3C1'], a: ['#9C6B3F', '#FFFFFF'] },
-    nane: { tr: 'Nane', en: 'Mint', c: ['#EEF5F0', '#FAFDFB', '#E1EEE5', '#16241B', '#4F6857', '#8AA393', '#D3E3D8'], a: ['#2F7D53', '#FFFFFF'] },
-    lavanta: { tr: 'Lavanta', en: 'Lavender', c: ['#F2F0F7', '#FBFAFE', '#E7E3F1', '#1F1A2E', '#635C78', '#9A93AE', '#DCD7EA'], a: ['#6B4FB3', '#FFFFFF'] },
-    gokyuzu: { tr: 'Gökyüzü', en: 'Sky', c: ['#EEF3F8', '#FAFCFE', '#E1EAF3', '#14202C', '#506477', '#8A9BAC', '#D3DEE9'], a: ['#2A6FB0', '#FFFFFF'] },
-    beyaz: { tr: 'Beyaz', en: 'White', c: ['#FFFFFF', '#FFFFFF', '#F5F5F5', '#111111', '#666666', '#9A9A9A', '#E8E8E8'], a: ['#111111', '#FFFFFF'] }
-  }
+// Temalar: her tema hem koyu hem aydınlık modda çalışır. c = [zemin, yüzey, yüzey 2, yazı, soluk yazı, çok soluk, çizgi], a = [vurgu, vurgu üstü yazı]
+const THEMES = {
+  notr: { tr: 'Nötr', en: 'Neutral', light: { c: ['#F2F2F4', '#FFFFFF', '#F7F7F9', '#16161A', '#5E5E68', '#9696A0', '#DEDEE4'], a: ['#2B2B33', '#FFFFFF'] }, dark: { c: ['#0F0F11', '#1A1A1E', '#222227', '#EDEDF0', '#A3A3AD', '#6E6E78', '#2C2C33'], a: ['#EDEDF0', '#0F0F11'] } },
+  nane: { tr: 'Nane', en: 'Mint', light: { c: ['#E6F4EC', '#FFFFFF', '#F1FAF5', '#13261B', '#4A6B58', '#86A694', '#C6E3D2'], a: ['#1F9D63', '#FFFFFF'] }, dark: { c: ['#0C1712', '#14241C', '#1A2E24', '#E3F4EA', '#9CC6AF', '#6A917C', '#264036'], a: ['#7EE0B0', '#0A1A12'] } },
+  lavanta: { tr: 'Lavanta', en: 'Lavender', light: { c: ['#EFEBFB', '#FFFFFF', '#F6F3FE', '#211A3A', '#5F5786', '#9A92BB', '#D9D0F3'], a: ['#6E4BF2', '#FFFFFF'] }, dark: { c: ['#13101E', '#1D1830', '#241E3B', '#ECE7FD', '#ADA3D6', '#7A70A6', '#342B52'], a: ['#BBA7FF', '#160F2C'] } },
+  seftali: { tr: 'Şeftali', en: 'Peach', light: { c: ['#FFEFE6', '#FFFFFF', '#FFF6F1', '#3A1E12', '#8A5C49', '#BE9381', '#F5D2C1'], a: ['#E2602F', '#FFFFFF'] }, dark: { c: ['#1B120E', '#281A14', '#32221A', '#FDEBE2', '#D8AA95', '#A07766', '#43302A'], a: ['#FFAD88', '#2A1208'] } },
+  gokyuzu: { tr: 'Gökyüzü', en: 'Sky', light: { c: ['#E7F1FC', '#FFFFFF', '#F1F7FE', '#11233A', '#4A6685', '#879EB8', '#C7DBF2'], a: ['#2A7DE9', '#FFFFFF'] }, dark: { c: ['#0C1521', '#132132', '#192A3F', '#E5EFFB', '#9EB9D6', '#6A85A3', '#253A53'], a: ['#8FC6FF', '#08162A'] } },
+  gul: { tr: 'Gül', en: 'Rose', light: { c: ['#FCECF2', '#FFFFFF', '#FEF5F8', '#3A1521', '#885468', '#BB8A9D', '#F1CCDA'], a: ['#D8436F', '#FFFFFF'] }, dark: { c: ['#1B0F15', '#28161F', '#331C28', '#FCE7EF', '#D7A3B6', '#A07284', '#452A38'], a: ['#FF9EBE', '#2C0A18'] } },
+  vanilya: { tr: 'Vanilya', en: 'Vanilla', light: { c: ['#FFF6DB', '#FFFFFF', '#FFFAEA', '#2D250E', '#77693B', '#ABA073', '#F0E2AE'], a: ['#946E00', '#FFFFFF'] }, dark: { c: ['#19160C', '#252113', '#2F2A19', '#FBF3D8', '#D1C399', '#998D64', '#403924'], a: ['#FFD866', '#241B00'] } },
+  orman: { tr: 'Orman', en: 'Forest', light: { c: ['#EAF2EC', '#FFFFFF', '#F3F8F4', '#15251A', '#4C6454', '#879B8D', '#CFDDD3'], a: ['#2C7A4B', '#FFFFFF'] }, dark: { c: ['#0F1712', '#17241C', '#1E2E24', '#E3ECE5', '#9DB3A4', '#6C8574', '#2B3D31'], a: ['#7CC18F', '#0B140E'] } },
+  ahsap: { tr: 'Ahşap', en: 'Woody', light: { c: ['#F4ECE2', '#FFFFFF', '#FAF5EF', '#2B2017', '#755F4B', '#A88F78', '#E3D3C0'], a: ['#9A6436', '#FFFFFF'] }, dark: { c: ['#1A1410', '#261D16', '#30251C', '#EFE4D8', '#B9A48F', '#88735F', '#3F3126'], a: ['#D9A774', '#1A1108'] } }
 };
+const OLD_THEME_MAP = { gece: 'notr', grafit: 'notr', kagit: 'notr', beyaz: 'notr', orman: 'orman', ahsap: 'ahsap', kum: 'ahsap', okyanus: 'gokyuzu', gokyuzu: 'gokyuzu', sarap: 'gul', nane: 'nane', lavanta: 'lavanta' };
 const ACCENT_NAMES = { theme: 'Temanın rengi', mono: 'Mono', petrol: 'Petrol', turkuaz: 'Turkuaz', mavi: 'Mavi', yesil: 'Yeşil', turuncu: 'Turuncu', mercan: 'Mercan', bordo: 'Bordo', mor: 'Mor' };
 const ACCENTS = {
   theme: null, mono: null,
@@ -172,34 +167,40 @@ const CARD_STYLES = { plain: 'Sade', outline: 'Çizgili', filled: 'Kutulu' };
 const DENSITY = { compact: ['Sıkı', 7], normal: ['Normal', 11], comfy: ['Rahat', 15] };
 // Başlıklar: [klasik, ironik] — kullanıcı her birini Ayarlar'dan yeniden adlandırabilir
 const TITLES = {
-  today: { tr: ['Bugün', 'Bugünün menüsü'], en: ['Today', 'Today’s menu'] },
-  plan: { tr: ['Planla', 'Plan yapan kazanır'], en: ['Plan', 'Plans & schemes'] },
-  info: { tr: ['Bilgi', 'Beyin yedeği'], en: ['Info', 'Second brain'] },
-  settings: { tr: ['Ayarlar', 'Kontrol odası'], en: ['Settings', 'Control room'] },
-  tasks: { tr: ['Görevler', 'Kaçamayacakların'], en: ['Tasks', 'No escape'] },
-  calendar: { tr: ['Takvim', 'Zaman tüneli'], en: ['Calendar', 'Time tunnel'] },
-  habits: { tr: ['Alışkanlıklar', 'Disiplin kulübü'], en: ['Habits', 'Discipline club'] },
-  goals: { tr: ['Hedefler', 'Büyük laflar'], en: ['Goals', 'Big talk'] },
-  notes: { tr: ['Notlar', 'Unutmadan yaz'], en: ['Notes', 'Before you forget'] },
-  pinned: { tr: ['Sabitlenen notlar', 'Burada dursun'], en: ['Pinned notes', 'Keep these close'] },
-  routines: { tr: ['Rutinler', 'Bakım zamanı'], en: ['Routines', 'Maintenance mode'] }
+  today: { tr: ['Bugün', 'Ne var ne yok'], en: ['Today', 'What’s up'] },
+  plan: { tr: ['Planla', 'Yol haritası'], en: ['Plan', 'Roadmap'] },
+  info: { tr: ['Bilgi', 'Hafıza sarayı'], en: ['Info', 'Memory palace'] },
+  settings: { tr: ['Ayarlar', 'Tornavida'], en: ['Settings', 'Screwdriver'] },
+  tasks: { tr: ['Görevler', 'Sırada ne var'], en: ['Tasks', 'What’s next'] },
+  calendar: { tr: ['Takvim', 'Gün gün'], en: ['Calendar', 'Day by day'] },
+  habits: { tr: ['Alışkanlıklar', 'Zinciri kırma'], en: ['Habits', 'Don’t break the chain'] },
+  goals: { tr: ['Hedefler', 'Zirve listesi'], en: ['Goals', 'Summit list'] },
+  notes: { tr: ['Notlar', 'Aklımda kalsın'], en: ['Notes', 'Mental sticky notes'] },
+  pinned: { tr: ['Sabitlenen notlar', 'Buzdolabı kapağı'], en: ['Pinned notes', 'Fridge door'] },
+  routines: { tr: ['Rutinler', 'Vakti geldi'], en: ['Routines', 'It’s about time'] }
 };
-// Her başlık için ironik öneriler (dokununca seçilir; kullanıcı kendisi de yazabilir)
+// 1.5'e kadar kullanılan ironik isimler: ironik stildeki kullanıcıda gördüğü isimler aynen korunur
+const OLD_IRONIC = {
+  today: ['Bugünün menüsü', 'Today’s menu'], plan: ['Plan yapan kazanır', 'Plans & schemes'], info: ['Beyin yedeği', 'Second brain'], settings: ['Kontrol odası', 'Control room'],
+  tasks: ['Kaçamayacakların', 'No escape'], calendar: ['Zaman tüneli', 'Time tunnel'], habits: ['Disiplin kulübü', 'Discipline club'], goals: ['Büyük laflar', 'Big talk'],
+  notes: ['Unutmadan yaz', 'Before you forget'], pinned: ['Burada dursun', 'Keep these close'], routines: ['Bakım zamanı', 'Maintenance mode']
+};
+// Yeni ironik öneriler (dokununca seçilir; kullanıcı kendisi de yazabilir). Seçili olan isim her zaman listede kalır.
 const TITLE_SUGGEST = {
-  today: { tr: ['Bugünün menüsü', 'Günün raporu', 'Bugün de kurtarırız', 'Sahne senin'], en: ['Today’s menu', 'Daily briefing', 'We’ll survive today', 'Showtime'] },
-  plan: { tr: ['Plan yapan kazanır', 'Büyük plan', 'Strateji masası'], en: ['Plans & schemes', 'The master plan', 'War room'] },
-  info: { tr: ['Beyin yedeği', 'Hafıza kartı', 'İkinci beyin'], en: ['Second brain', 'Memory card', 'Brain backup'] },
-  settings: { tr: ['Kontrol odası', 'Makine dairesi', 'Kurcala'], en: ['Control room', 'Engine room', 'Tinker'] },
-  tasks: { tr: ['Kaçamayacakların', 'Ertelenenler kulübü', 'İş başa düştü', 'Yapılacaklar (kaçış yok)'], en: ['No escape', 'Procrastination club', 'It’s on you', 'To-dos (no excuses)'] },
-  calendar: { tr: ['Zaman tüneli', 'Randevu defteri', 'Takvim yaprakları'], en: ['Time tunnel', 'Appointment book', 'Days ahead'] },
-  routines: { tr: ['Bakım zamanı', 'Yine mi sen?', 'Döngüdekiler', 'Sırası geldi'], en: ['Maintenance mode', 'You again?', 'In the loop', 'It’s that time'] },
-  habits: { tr: ['Disiplin kulübü', 'Rutin sanatı', 'Küçük adımlar'], en: ['Discipline club', 'The art of routine', 'Small steps'] },
-  goals: { tr: ['Büyük laflar', 'Hayaller ve hesaplar', 'Bir gün mutlaka'], en: ['Big talk', 'Dreams & math', 'Someday for sure'] },
-  notes: { tr: ['Unutmadan yaz', 'Karalama defteri', 'Fikir çöplüğü'], en: ['Before you forget', 'Scratchpad', 'Idea dump'] },
-  pinned: { tr: ['Burada dursun', 'Göz önünde', 'Unutma bunları'], en: ['Keep these close', 'In plain sight', 'Don’t forget'] }
+  today: { tr: ['Ne var ne yok', 'Günün kokpiti', 'Bugünkü cephe', 'Kahve ve plan'], en: ['What’s up', 'Daily cockpit', 'Today’s front line', 'Coffee & plans'] },
+  plan: { tr: ['Yol haritası', 'Ajanda', 'Kumanda masası', 'Büyük resim'], en: ['Roadmap', 'Agenda', 'Mission control', 'Big picture'] },
+  info: { tr: ['Hafıza sarayı', 'Kara kutu', 'Arşiv odası', 'Not deposu'], en: ['Memory palace', 'Black box', 'Archive room', 'Note vault'] },
+  settings: { tr: ['Tornavida', 'Arka oda', 'Mutfak', 'Ayar çekme'], en: ['Screwdriver', 'Back room', 'The kitchen', 'Fine tuning'] },
+  tasks: { tr: ['Sırada ne var', 'Bekleyen işler', 'Bunu da hallet', 'Yapılacaklar dağı'], en: ['What’s next', 'Pending', 'Get it done', 'Mount To-do'] },
+  calendar: { tr: ['Gün gün', 'Randevular', 'Zaman çizelgesi', 'Ajanda sayfaları'], en: ['Day by day', 'Appointments', 'Timeline', 'Agenda pages'] },
+  routines: { tr: ['Vakti geldi', 'Dönüp dolaşıp', 'Bakım defteri', 'Takvim hatırlatır'], en: ['It’s about time', 'Round and round', 'Upkeep log', 'The calendar remembers'] },
+  habits: { tr: ['Zinciri kırma', 'Her gün biraz', 'Mini zaferler', 'Seri katil'], en: ['Don’t break the chain', 'A little every day', 'Tiny wins', 'Streak hunter'] },
+  goals: { tr: ['Zirve listesi', 'Uzun vade', 'Hedef tahtası', 'Yapacağım, göreceksin'], en: ['Summit list', 'The long game', 'Target board', 'Watch me'] },
+  notes: { tr: ['Aklımda kalsın', 'Defter', 'Beyin fırtınası', 'Not kâğıtları'], en: ['Mental sticky notes', 'Notebook', 'Brainstorm', 'Paper scraps'] },
+  pinned: { tr: ['Buzdolabı kapağı', 'Masada dursun', 'Baş köşe', 'Önemli olanlar'], en: ['Fridge door', 'On the desk', 'Place of honor', 'The important ones'] }
 };
 const isEn = () => settings().lang === 'en';
-function T(key) { const st = settings(); const c = (st.titles || {})[key]; if (c) return c; const t = TITLES[key]; if (!t) return key; return t[isEn() ? 'en' : 'tr'][st.titleStyle === 'ironic' ? 1 : 0]; }
+function T(key) { const st = settings(); const c = (st.titles || {})[key]; if (c) return c; if (st.titleStyle === 'ironic' && st.ironicKeep && st.ironicKeep[key]) return st.ironicKeep[key]; const t = TITLES[key]; if (!t) return key; return t[isEn() ? 'en' : 'tr'][st.titleStyle === 'ironic' ? 1 : 0]; }
 function TL(key) { const c = (settings().titles || {})[key]; if (c) return c; const t = TITLES[key]; return t ? t[isEn() ? 'en' : 'tr'][0] : key; }
 function settings() {
   let s = S.items.get('settings');
@@ -212,9 +213,16 @@ function settings() {
     if (!s.accent || s.accent === 'mono' || s.accent === 'grafit') s.accent = 'theme';
     delete s.radius; s.look = 3;
   }
+  if (s.look < 4) {
+    s.themeId = OLD_THEME_MAP[s.theme === 'light' ? s.lightPal : s.darkPal] || 'notr';
+    if (!s.cards || s.cards === 'plain') s.cards = 'filled';
+    if (Number(s.fs) > 1) s.fs = 1;
+    if (s.titleStyle === 'ironic') { s.ironicKeep = {}; for (const k in OLD_IRONIC) s.ironicKeep[k] = OLD_IRONIC[k][s.lang === 'en' ? 1 : 0]; }
+    delete s.darkPal; delete s.lightPal; s.look = 4;
+  }
   for (const k in DEFAULT_SETTINGS) if (s[k] === undefined) s[k] = clone(DEFAULT_SETTINGS[k]);
-  if (!PALETTES.dark[s.darkPal]) s.darkPal = 'gece';
-  if (!PALETTES.light[s.lightPal]) s.lightPal = 'kagit';
+  if (!THEMES[s.themeId]) s.themeId = 'notr';
+  if (![0.8, 0.9, 1].includes(Number(s.fs))) s.fs = 1;
   if (!FONTS[s.font]) s.font = 'plex';
   if (!(s.accent in ACCENTS)) s.accent = 'theme';
   ['today', 'plan'].forEach(key => DEFAULT_SETTINGS[key].forEach(d => { if (!s[key].find(x => x.k === d.k)) s[key].push(clone(d)); }));
@@ -228,7 +236,7 @@ function currentTheme() {
   if (t === 'system') return window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   return t === 'light' ? 'light' : 'dark';
 }
-function currentPalette() { const st = settings(); const m = currentTheme(); return PALETTES[m][m === 'dark' ? st.darkPal : st.lightPal] || PALETTES[m][m === 'dark' ? 'gece' : 'kagit']; }
+function currentPalette() { const st = settings(); return (THEMES[st.themeId] || THEMES.notr)[currentTheme()]; }
 function currentAccent() {
   const st = settings(); const mode = currentTheme(); const p = currentPalette();
   if (st.accent === 'mono') return [p.c[3], p.c[0]];
@@ -243,7 +251,7 @@ function applyTheme() {
   const a = currentAccent();
   css('--accent', a[0]); css('--accent-ink', a[1]); css('--accent-soft', hexA(a[0], mode === 'dark' ? 0.14 : 0.10));
   css('--font', (FONTS[st.font] || FONTS.plex)[1]);
-  css('--fs', String(Math.max(0.8, Math.min(1.4, Number(st.fs) || 1))));
+  css('--fs', String(Math.max(0.8, Math.min(1, Number(st.fs) || 1))));
   css('--pad', (DENSITY[st.density] || DENSITY.normal)[1] + 'px');
   root.dataset.cards = CARD_STYLES[st.cards] ? st.cards : 'plain';
   root.dataset.tablabels = st.tabLabels === false ? 'off' : 'on';
@@ -727,7 +735,12 @@ const EN = {
   'Bu etkinlik Google Takvim’den silinsin mi?': 'Delete this event from Google Calendar?', 'Google Takvim’den silindi': 'Deleted from Google Calendar', 'Google Takvim’i yenile': 'Refresh Google Calendar',
   'Bu cihazda Google Takvim bağlantısı kesilsin mi? Google Takvim’deki etkinliklerin silinmez.': 'Disconnect Google Calendar on this device? Your Google Calendar events are not deleted.',
   'Google ile eşitlemek için dokun': 'Tap to sync with Google', 'Google izni eksik, tekrar bağlan': 'Google permission missing, reconnect', 'Google Cloud’da bu API kapalı. console.cloud.google.com → PUSULA → APIs & Services → Library’den açman gerekiyor.': 'This API is disabled in Google Cloud. Enable it at console.cloud.google.com → PUSULA → APIs & Services → Library.',
-  '(başlıksız)': '(untitled)', 'Varsayılan': 'Default'
+  '(başlıksız)': '(untitled)', 'Varsayılan': 'Default',
+  'Tema': 'Theme', 'Her tema hem koyu hem aydınlık modda çalışır.': 'Every theme works in both dark and light mode.',
+  'Uyarılar': 'Alerts', 'Uyarı ayarları': 'Alert settings', 'Göster': 'Show', 'Bugün gizle': 'Hide for today', 'Her şey yolunda. Şu an uyarı yok.': 'All good. No alerts right now.',
+  'Sağ üstteki zilde ve Bugün ekranının üstündeki şeritte görünür. Bir uyarıyı gizlersen o gün bir daha gösterilmez.': 'Shown in the bell at the top right and in the strip on the Today screen. A hidden alert won’t show again that day.',
+  'Bugün ekranında uyarı şeridi': 'Alert strip on Today screen', 'Geciken görevler': 'Overdue tasks', 'Geciken ve yaklaşan rutinler': 'Late and upcoming routines', 'Önümüzdeki 3 saatteki etkinlikler': 'Events in the next 3 hours',
+  'Akşam alışkanlık hatırlatması (20:00 sonrası)': 'Evening habit reminder (after 8 pm)', 'Son tarihi yaklaşan hedefler': 'Goals with a near deadline', 'Yedek hatırlatması': 'Backup reminder', 'Google eşitleme': 'Google sync', 'Yeni sürüm': 'New version'
 };
 const EN_RX = [
   [/^\+(\d+) görev daha$/, '+$1 more tasks'],
@@ -845,6 +858,7 @@ function render() {
   else if (S.tab === 'info') { body = viewInfo(); title = subTitle(S.infoSub); }
   else { title = T('settings'); body = viewSettings(); }
   if ((Drive.on() || Cal.on()) && S.tab !== 'settings') actions += '<button id="syncBtn" class="icon-btn ' + (Drive.status === 'syncing' ? 'spin ' : '') + (Drive.status === 'needauth' || Drive.status === 'error' ? 'warn' : '') + '" data-act="sync-now" aria-label="Eşitle">' + icon('sync') + '</button>';
+  if (S.tab !== 'settings') { const n = computeAlerts().length; actions += '<button class="icon-btn bell ' + (n ? 'has' : '') + '" data-act="alerts" aria-label="Uyarılar">' + icon('bell') + (n ? '<b class="badge">' + (n > 9 ? '9+' : n) + '</b>' : '') + '</button>'; }
   actions += S.tab === 'settings'
     ? '<button class="icon-btn" data-act="close-settings" aria-label="Kapat">' + icon('x') + '</button>'
     : '<button class="icon-btn" data-act="open-settings" aria-label="Ayarlar">' + icon('settings') + '</button>';
@@ -853,6 +867,47 @@ function render() {
   $('#view').innerHTML = body;
   $('#fab').hidden = S.tab === 'settings';
   translateTree(document.body);
+}
+
+/* ----- Uygulama içi uyarılar ----- */
+const ALERT_TYPES = { overdue: 'Geciken görevler', todayTasks: 'Bugünün görevleri', routines: 'Geciken ve yaklaşan rutinler', events: 'Önümüzdeki 3 saatteki etkinlikler', habits: 'Akşam alışkanlık hatırlatması (20:00 sonrası)', goals: 'Son tarihi yaklaşan hedefler', backup: 'Yedek hatırlatması', sync: 'Google eşitleme', update: 'Yeni sürüm' };
+const Lx = (tr, en) => isEn() ? en : tr;
+function alertDismissed() { try { const d = JSON.parse(lsGet('pusula.dis', '{}')); return d.day === today() ? (d.ids || []) : []; } catch (e) { return []; } }
+function alertDismiss(id) { const ids = alertDismissed(); ids.push(id); lsSet('pusula.dis', JSON.stringify({ day: today(), ids })); }
+function computeAlerts() {
+  const st = settings(); const on = k => (st.alerts || {})[k] !== false; const t0 = today(); const out = [];
+  if (on('overdue') && planOn('tasks')) { const n = list('task').filter(t => !t.done && t.due && t.due < t0).length; if (n) out.push({ id: 'overdue' + n, lvl: 'danger', icon: 'task', text: Lx(n + ' görev gecikti', n + ' overdue tasks'), go: 'tasks' }); }
+  if (on('todayTasks') && planOn('tasks')) { const n = list('task').filter(t => !t.done && t.due === t0).length; if (n) out.push({ id: 'today' + n, lvl: 'info', icon: 'task', text: Lx('Bugün ' + n + ' görevin var', n + ' tasks due today'), go: 'tasks' }); }
+  if (on('routines') && planOn('routines')) {
+    list('routine').forEach(r => {
+      if (!r.next) return; const d = daysBetween(t0, r.next);
+      if (d < 0) out.push({ id: 'rt' + r.id + r.next, lvl: 'danger', icon: 'repeat', text: Lx('“' + r.title + '” ' + (-d) + ' gün gecikti', '“' + r.title + '” is ' + (-d) + ' days late'), go: 'routines' });
+      else if (d <= 1) out.push({ id: 'rt' + r.id + r.next, lvl: 'warn', icon: 'repeat', text: Lx('“' + r.title + '” ' + (d === 0 ? 'bugün' : 'yarın'), '“' + r.title + '” ' + (d === 0 ? 'today' : 'tomorrow')), go: 'routines' });
+    });
+  }
+  if (on('events')) {
+    const now = new Date(), hm = pad(now.getHours()) + ':' + pad(now.getMinutes()); const lim = new Date(now.getTime() + 3 * 3600000);
+    const hmL = lim.getDate() !== now.getDate() ? '23:59' : pad(lim.getHours()) + ':' + pad(lim.getMinutes());
+    const evs = list('event').filter(e => e.date === t0 && !e.allDay && e.start).concat(Cal.on() ? Cal.forDate(t0).filter(e => !e.allDay && e.start) : []);
+    evs.filter(e => e.start >= hm && e.start <= hmL).forEach(e => out.push({ id: 'ev' + (e.id || e.gid), lvl: 'warn', icon: 'event', text: e.start + ' · ' + e.title, go: 'calendar' }));
+  }
+  if (on('habits') && planOn('habits') && new Date().getHours() >= 20) { const n = list('habit').filter(h => habitScheduled(h, t0) && !(h.log || {})[t0]).length; if (n) out.push({ id: 'hb' + t0, lvl: 'info', icon: 'habit', text: Lx(n + ' alışkanlık bugün henüz yapılmadı', n + ' habits not done yet today'), go: 'habits' }); }
+  if (on('goals') && planOn('habits')) list('goal').forEach(g => { if (g.deadline && goalPct(g) < 100) { const d = daysBetween(t0, g.deadline); if (d >= 0 && d <= 7) out.push({ id: 'gl' + g.id, lvl: 'warn', icon: 'goal', text: Lx('“' + g.title + '” için ' + d + ' gün kaldı', d + ' days left for “' + g.title + '”'), go: 'habits' }); } });
+  if (on('backup') && !Drive.on()) { const last = +lsGet('pusula.lastExport', '0'); if (!last || Date.now() - last > 7 * 86400000) out.push({ id: 'backup', lvl: 'warn', icon: 'download', text: Lx(last ? 'Son dış yedek 1 haftadan eski' : 'Verilerinin henüz dış yedeği yok', last ? 'Last external backup is over a week old' : 'No external backup of your data yet'), act: 'share-backup', btn: Lx('Yedekle', 'Back up') }); }
+  if (on('sync') && (Drive.on() || Cal.on()) && (gNeedsToken() || Drive.status === 'error' || Cal.status === 'error')) out.push({ id: 'sync', lvl: 'warn', icon: 'sync', text: Lx('Google eşitlemesi bekliyor', 'Google sync is waiting'), act: 'sync-now', btn: Lx('Eşitle', 'Sync') });
+  if (on('update') && S.waitingSW) out.push({ id: 'update', lvl: 'info', icon: 'download', text: Lx('Yeni sürüm hazır', 'New version ready'), act: 'check-update', btn: Lx('Güncelle', 'Update') });
+  const dis = alertDismissed(); const rank = { danger: 0, warn: 1, info: 2 };
+  return out.filter(a => !dis.includes(a.id)).sort((a, b) => rank[a.lvl] - rank[b.lvl]);
+}
+function alertBanner() {
+  const st = settings(); if ((st.alerts || {}).banner === false || lsGet('pusula.bannerDay', '') === today()) return '';
+  const al = computeAlerts().filter(a => a.lvl !== 'info'); if (!al.length) return '';
+  return '<div class="alert-banner ' + (al.some(a => a.lvl === 'danger') ? 'danger' : 'warn') + '"><button class="ab-main" data-act="alerts">' + icon('bell') + '<span class="u">' + esc(al.slice(0, 2).map(a => a.text).join(' · ')) + (al.length > 2 ? ' +' + (al.length - 2) : '') + '</span></button><button class="icon-btn" data-act="banner-hide" aria-label="Bugün gizle">' + icon('x', 'sm') + '</button></div>';
+}
+function openAlerts() {
+  const al = computeAlerts();
+  openSheet(sheetHead('Uyarılar') + '<div class="sheet-body">' + (al.length ? '<div class="alert-list">' + al.map(a => '<div class="alert-item ' + a.lvl + '">' + icon(a.icon) + '<div class="grow u">' + esc(a.text) + '</div>' + (a.act ? '<button class="btn sm-btn" data-act="' + a.act + '">' + esc(a.btn) + '</button>' : '<button class="btn sm-btn" data-act="alert-go" data-k="' + a.go + '">Göster</button>') + '<button class="icon-btn" data-act="alert-dismiss" data-id="' + esc(a.id) + '" aria-label="Bugün gizle">' + icon('x', 'sm') + '</button></div>').join('') + '</div>' : '<div class="empty">Her şey yolunda. Şu an uyarı yok.</div>') +
+    '<button class="link" data-act="alert-settings">Uyarı ayarları</button></div>', { onClose: () => setTimeout(render, 0) });
 }
 
 /* ----- Planla / Bilgi sekmeleri ----- */
@@ -965,7 +1020,7 @@ function viewToday() {
   if (planOn('tasks')) { const n = list('task').filter(t => !t.done && t.due && t.due <= t0).length; pills.push('<button class="pill" data-act="go" data-k="tasks"><b>' + n + '</b> görev</button>'); }
   if (planOn('calendar')) { const n = list('event').filter(e => e.date === t0).length; pills.push('<button class="pill" data-act="go" data-k="calendar"><b>' + n + '</b> etkinlik</button>'); }
   if (planOn('habits')) { const hs = list('habit').filter(x => habitScheduled(x, t0)); const d = hs.filter(x => (x.log || {})[t0]).length; if (hs.length) pills.push('<button class="pill" data-act="go" data-k="habits"><b>' + d + '/' + hs.length + '</b> alışkanlık</button>'); }
-  let html = '<div class="hero"><div class="hero-greet">' + greet + (st.name ? ', ' + esc(st.name) : '') + '</div><div class="hero-date">' + fmtLong(t0) + '</div><div class="hero-sum">' + pills.join('') + '</div></div><div class="grid-cards">';
+  let html = alertBanner() + '<div class="hero"><div class="hero-greet">' + greet + (st.name ? ', ' + esc(st.name) : '') + '</div><div class="hero-date">' + fmtLong(t0) + '</div><div class="hero-sum">' + pills.join('') + '</div></div><div class="grid-cards">';
   const avail = { tasks: planOn('tasks'), events: planOn('calendar'), routines: planOn('routines'), habits: planOn('habits'), goals: planOn('habits'), pinned: st.notes };
   customMods().forEach(m => { avail['c:' + m.id] = true; });
   st.today.forEach(c => { if (!c.on || !avail[c.k]) return; if (String(c.k).startsWith('c:')) html += cardCustom(c.k.slice(2)); else if (TODAY_CARDS[c.k]) html += TODAY_CARDS[c.k](); });
@@ -1573,9 +1628,10 @@ function viewSettings() {
     '<div class="set-row"><div class="grow"><div>Adın</div><div class="sub">Bugün ekranında selamlamak için</div></div><input class="input slim" id="setName" style="max-width:170px" placeholder="Adın" value="' + esc(st.name) + '" autocomplete="off"></div>';
   const titles = '<div class="set-sub">Başlık stili</div><div class="pad-x"><div class="seg"><button class="' + (st.titleStyle !== 'ironic' ? 'on' : '') + '" data-act="look" data-k="titleStyle" data-v="classic">Klasik</button><button class="' + (st.titleStyle === 'ironic' ? 'on' : '') + '" data-act="look" data-k="titleStyle" data-v="ironic">İronik</button></div></div>' +
     '<div class="set-sub">Başlıkları yeniden adlandır</div><p class="muted sm" style="margin:0 0 6px">Boş bırakırsan yukarıdaki stile göre yazılır.</p>' +
-    Object.keys(TITLES).map(k => { const L = isEn() ? 'en' : 'tr'; const cur = (st.titles || {})[k] || ''; const sug = (TITLE_SUGGEST[k] || {})[L] || [];
+    Object.keys(TITLES).map(k => { const L = isEn() ? 'en' : 'tr'; const cur = (st.titles || {})[k] || (st.titleStyle === 'ironic' && st.ironicKeep && st.ironicKeep[k]) || ''; const sug = (TITLE_SUGGEST[k] || {})[L] || [];
+      const chips = cur && !sug.includes(cur) ? [cur].concat(sug) : sug;
       return '<div class="title-row"><div class="tr-head"><span class="u">' + esc(TITLES[k][L][0]) + '</span><input class="input slim" data-title-key="' + k + '" placeholder="' + esc(TITLES[k][L][st.titleStyle === 'ironic' ? 1 : 0]) + '" value="' + esc(cur) + '" autocomplete="off"></div>' +
-        '<div class="chips tr-sugs">' + sug.map(v => '<button class="chip sm u ' + (cur === v ? 'on' : '') + '" data-act="title-pick" data-k="' + k + '" data-v="' + esc(v) + '">' + esc(v) + '</button>').join('') + (cur ? '<button class="chip sm" data-act="title-pick" data-k="' + k + '" data-v="">Varsayılan</button>' : '') + '</div></div>'; }).join('') +
+        '<div class="chips tr-sugs">' + chips.map(v => '<button class="chip sm u ' + (cur === v ? 'on' : '') + '" data-act="title-pick" data-k="' + k + '" data-v="' + esc(v) + '">' + esc(v) + '</button>').join('') + (cur ? '<button class="chip sm" data-act="title-pick" data-k="' + k + '" data-v="">Varsayılan</button>' : '') + '</div></div>'; }).join('') +
     '<div class="set-sub">Kendi bölümlerin</div>' +
     (customMods().length ? customMods().map(m => '<div class="set-row cmod-row"><div class="grow"><input class="input slim" data-cmod-name="' + m.id + '" value="' + esc(m.name) + '" autocomplete="off"><div class="sub"><span>' + CTYPES[m.type][0] + '</span> · <span>' + (m.home === 'info' ? 'Bilgi sekmesinde' : 'Planla sekmesinde') + '</span></div></div><button class="icon-btn" data-act="cmod-home" data-id="' + m.id + '" aria-label="Sekmeyi değiştir">' + icon(m.home === 'info' ? 'info' : 'plan') + '</button><button class="icon-btn" data-act="cmod-del" data-id="' + m.id + '" aria-label="Sil">' + icon('trash') + '</button></div>').join('') : '<p class="muted sm" style="margin:4px 0 8px">Henüz yok. Liste, not defteri, sayaç ya da kayıt defteri olarak kendi bölümünü ekle.</p>') +
     '<button class="btn block" data-act="cmod-new">' + icon('plus') + ' Yeni bölüm ekle</button>';
@@ -1595,6 +1651,9 @@ function viewSettings() {
     acc('look', 'Görünüm', 'today', lookBody(st)) +
     acc('titles', 'Başlıklar ve bölümler', 'tag', titles) +
     acc('todaycards', 'Bugün ekranı', 'task', orderRows('today', st.today, CARD_LABELS)) +
+    acc('alerts', 'Uyarılar', 'bell', '<p class="muted sm" style="margin:10px 0 4px">Sağ üstteki zilde ve Bugün ekranının üstündeki şeritte görünür. Bir uyarıyı gizlersen o gün bir daha gösterilmez.</p>' +
+      '<div class="set-row"><div class="grow"><div>Bugün ekranında uyarı şeridi</div></div><button class="switch ' + ((st.alerts || {}).banner !== false ? 'on' : '') + '" data-act="alert-toggle" data-k="banner" aria-label="Aç/kapat"></button></div>' +
+      Object.keys(ALERT_TYPES).map(k => '<div class="set-row"><div class="grow">' + ALERT_TYPES[k] + '</div><button class="switch ' + ((st.alerts || {})[k] !== false ? 'on' : '') + '" data-act="alert-toggle" data-k="' + k + '" aria-label="Aç/kapat"></button></div>').join('')) +
     acc('modules', 'Modüller ve etiketler', 'plan', modules) +
     acc('data', 'Senkron ve yedek', 'cloud', data) +
     acc('app', 'Uygulama', 'sync', app) +
@@ -1602,17 +1661,16 @@ function viewSettings() {
 }
 function lookBody(st) {
   const opt = (k, v, on, inner, label) => '<button class="opt ' + (on ? 'on' : '') + '" data-act="look" data-k="' + k + '" data-v="' + v + '">' + inner + '<span>' + label + '</span></button>';
-  const palOpts = mode => Object.keys(PALETTES[mode]).map(id => { const p = PALETTES[mode][id]; return opt(mode === 'dark' ? 'darkPal' : 'lightPal', id, (mode === 'dark' ? st.darkPal : st.lightPal) === id, '<span class="sw3"><i style="background:' + p.c[0] + '"></i><i style="background:' + p.c[2] + '"></i><i style="background:' + p.a[0] + '"></i></span>', '<span class="u">' + (isEn() ? p.en : p.tr) + '</span>'); }).join('');
+  const themeOpts = () => Object.keys(THEMES).map(id => { const t = THEMES[id]; return opt('themeId', id, st.themeId === id, '<span class="tsw"><i style="background:' + t.light.c[0] + '"></i><i style="background:' + t.light.a[0] + '"></i><i style="background:' + t.dark.c[0] + '"></i><i style="background:' + t.dark.a[0] + '"></i></span>', '<span class="u">' + (isEn() ? t.en : t.tr) + '</span>'); }).join('');
   const segRow = (k, map, cur) => '<div class="seg">' + Object.keys(map).map(v => '<button class="' + (cur === v ? 'on' : '') + '" data-act="look" data-k="' + k + '" data-v="' + v + '">' + (Array.isArray(map[v]) ? map[v][0] : map[v]) + '</button>').join('') + '</div>';
   const mode = currentTheme(); const p = currentPalette();
   const cardPrev = { plain: '<span class="cprev"><i style="background:var(--line);height:1px"></i><i style="background:transparent"></i><i style="background:var(--line);height:1px"></i></span>', outline: '<span class="cprev"><i style="border:1px solid var(--line);height:20px;border-radius:4px"></i></span>', filled: '<span class="cprev"><i style="background:var(--surface2);border:1px solid var(--line);height:20px;border-radius:4px"></i></span>' };
   return '<div class="set-sub">Mod</div><div class="pad-x">' + segRow('theme', { dark: 'Koyu', light: 'Aydınlık', system: 'Sistem' }, st.theme) + '</div>' +
-    '<div class="set-sub">Koyu temalar</div><div class="opt-grid">' + palOpts('dark') + '</div>' +
-    '<div class="set-sub">Aydınlık temalar</div><div class="opt-grid">' + palOpts('light') + '</div>' +
+    '<div class="set-sub">Tema</div><p class="muted sm" style="margin:0 0 6px">Her tema hem koyu hem aydınlık modda çalışır.</p><div class="opt-grid">' + themeOpts() + '</div>' +
     '<div class="set-sub">Vurgu rengi</div><div class="accents">' + Object.keys(ACCENTS).map(k => '<button class="accent-dot ' + (k === 'mono' ? 'mono ' : '') + (k === 'theme' ? 'themeacc ' : '') + (st.accent === k ? 'on' : '') + '" style="background:' + (k === 'theme' ? p.a[0] : ACCENTS[k] ? ACCENTS[k][mode][0] : 'var(--text)') + '" data-act="look" data-k="accent" data-v="' + k + '" aria-label="' + ACCENT_NAMES[k] + '" title="' + ACCENT_NAMES[k] + '"></button>').join('') + '</div>' +
     '<div class="set-sub">Alanlar</div><div class="opt-grid">' + Object.keys(CARD_STYLES).map(k => opt('cards', k, st.cards === k, cardPrev[k], CARD_STYLES[k])).join('') + '</div>' +
     '<div class="set-sub">Yazı tipi</div><div class="opt-grid">' + Object.keys(FONTS).map(k => opt('font', k, st.font === k, '<span class="fprev" style="font-family:' + FONTS[k][1].replace(/"/g, '&quot;') + '">Ağ</span>', '<span class="u">' + FONTS[k][0] + '</span>')).join('') + '</div>' +
-    '<div class="set-sub">Yazı boyutu (punto)</div><div class="range-row"><span class="sm muted">A</span><input type="range" id="fsRange" min="85" max="130" step="5" value="' + Math.round((st.fs || 1) * 100) + '" aria-label="Yazı boyutu"><span style="font-size:20px" class="muted">A</span><b id="fsVal">%' + Math.round((st.fs || 1) * 100) + '</b></div>' +
+    '<div class="set-sub">Yazı boyutu (punto)</div><div class="pad-x">' + segRow('fs', { '0.8': '%80', '0.9': '%90', '1.0': '%100' }, (Number(st.fs) || 1).toFixed(1)) + '</div>' +
     '<div class="set-sub">Satır aralığı</div><div class="pad-x">' + segRow('density', DENSITY, st.density) + '</div>' +
     '<div class="set-row"><div class="grow">Alt menüde yazılar</div><button class="switch ' + (st.tabLabels !== false ? 'on' : '') + '" data-act="look" data-k="tabLabels" data-v="' + (st.tabLabels !== false ? 'false' : 'true') + '" aria-label="Aç/kapat"></button></div>' +
     '<button class="btn block" data-act="look-reset">Görünümü sıfırla</button>';
@@ -1780,7 +1838,7 @@ const ACTIONS = {
   'ink-pin': el => { const E = S.ink; E.n.pinned = !E.n.pinned; el.classList.toggle('on', E.n.pinned); inkChanged(); },
   'ink-delete': async () => { const E = S.ink; if (E.strokes.length && !ask('Bu kalem notu silinsin mi?')) return; E.deleted = true; const it = S.items.get(E.n.id); closeSheet(); if (it) await remove(it, { silent: true }); },
   // ayarlar
-  'look': el => { const st = settings(); let v = el.dataset.v; if (v === 'true') v = true; else if (v === 'false') v = false; st[el.dataset.k] = v; thumbCache.clear(); saveSettings(); },
+  'look': el => { const st = settings(); let v = el.dataset.v; if (v === 'true') v = true; else if (v === 'false') v = false; if (el.dataset.k === 'fs') v = Number(v); st[el.dataset.k] = v; thumbCache.clear(); saveSettings(); },
   'look-reset': () => { if (!ask('Görünüm varsayılana dönsün mü? (Verilerin etkilenmez)')) return; Object.assign(settings(), clone(LOOK_DEFAULTS)); thumbCache.clear(); saveSettings(); },
   'share-backup': () => shareBackup(),
   'snapshots': () => openSnapshots(),
@@ -1798,6 +1856,12 @@ const ACTIONS = {
   'drive-off': async () => { if (!ask('Bu cihazda Google Drive senkronu kapatılsın mı? Veriler cihazda ve Drive’da kalır.')) return; Drive.cfg.connected = false; Drive.token = null; Drive.exp = 0; lsSet('pusula.gtok', 'null'); await Drive.saveCfg(); Drive.setStatus('off'); openDrive(); },
   'copy-origin': async () => { try { await navigator.clipboard.writeText(location.origin); toast('Adres kopyalandı'); } catch (e) { toast(location.origin); } },
   'export': () => exportData(),
+  'alerts': () => openAlerts(),
+  'alert-go': el => { closeSheet(); setTimeout(() => ACTIONS.go(el), 0); },
+  'alert-dismiss': el => { alertDismiss(el.dataset.id); const row = el.closest('.alert-item'); if (row) row.remove(); if (!$('#sheetRoot .alert-item')) openAlerts(); },
+  'alert-settings': () => { closeSheet(); const a = accOpen().filter(x => x !== 'alerts'); a.push('alerts'); lsSet('pusula.acc', JSON.stringify(a)); S.prevTab = S.tab === 'settings' ? S.prevTab : S.tab; S.tab = 'settings'; setTimeout(() => { render(); const d = $('[data-acc=alerts]'); if (d) d.scrollIntoView({ block: 'start' }); }, 0); },
+  'alert-toggle': el => { const st = settings(); st.alerts = st.alerts || {}; st.alerts[el.dataset.k] = st.alerts[el.dataset.k] === false; saveSettings(); },
+  'banner-hide': () => { lsSet('pusula.bannerDay', today()); render(); },
   'new-routine': () => editRoutine(),
   'rt-edit': el => { const r = S.items.get(el.dataset.id); if (r) editRoutine(r); },
   'rt-done': el => routineDone(el.dataset.id),
@@ -1808,7 +1872,7 @@ const ACTIONS = {
   'cal-toggle': async el => { const c = Cal.calById(el.dataset.id); if (!c) return; c.on = !c.on; el.classList.toggle('on', c.on); await Cal.saveCfg(); Cal.fetched = {}; if (Cal.ready()) Cal.sync(); },
   'cal-routines': async el => { Cal.cfg.routines = Cal.cfg.routines === false; el.classList.toggle('on', Cal.cfg.routines !== false); await Cal.saveCfg(); },
   'cal-off': async () => { if (!ask('Bu cihazda Google Takvim bağlantısı kesilsin mi? Google Takvim’deki etkinliklerin silinmez.')) return; Cal.cfg.connected = false; Cal.byDate = {}; Cal.persist(); await Cal.saveCfg(); Cal.setStatus('off'); openCal(); },
-  'title-pick': el => { const st = settings(); st.titles = st.titles || {}; if (el.dataset.v) st.titles[el.dataset.k] = el.dataset.v; else delete st.titles[el.dataset.k]; saveSettings(); },
+  'title-pick': el => { const st = settings(); st.titles = st.titles || {}; const k = el.dataset.k; if (el.dataset.v) st.titles[k] = el.dataset.v; else { delete st.titles[k]; if (st.ironicKeep) delete st.ironicKeep[k]; } saveSettings(); },
   'citem-toggle': async el => { const i = S.items.get(el.dataset.id); if (!i) return; i.done = !i.done; i.doneAt = i.done ? Date.now() : null; await save(i); },
   'citem-step': async el => { const i = S.items.get(el.dataset.id); if (!i) return; i.value = r2((Number(i.value) || 0) + Number(el.dataset.dir)); i.at = Date.now(); await save(i); },
   'citem-edit': el => { const i = S.items.get(el.dataset.id); if (i) editCItem(i); },

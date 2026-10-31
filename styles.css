@@ -460,3 +460,36 @@ body{font-size:calc(16px*var(--fs))}
 .cal-dot{width:12px;height:12px;border-radius:50%;flex:none}
 .cal-refresh{display:block;margin:6px 0 4px}
 .gev .row-meta{font-size:calc(12px*var(--fs))}
+
+/* ===================== v1.6 — Belirgin alanlar, tema örnekleri, uyarılar ===================== */
+/* Kutulu alanlar: zeminden net ayrılır, başlık şeridi vurgu renginden hafif tonla */
+[data-cards=filled] .card,[data-cards=filled] .note-card{background:var(--surface);border:1px solid var(--line);box-shadow:0 1px 2px rgba(0,0,0,.05),0 6px 18px -8px rgba(0,0,0,.18)}
+[data-cards=filled] .card-head{background:var(--surface2);background:color-mix(in srgb,var(--accent) 9%,var(--surface));border-bottom:1px solid var(--line)}
+[data-cards=filled] .card-title svg.i{color:var(--accent)}
+[data-cards=filled] .grid-cards{gap:14px}
+[data-theme=dark][data-cards=filled] .card,[data-theme=dark][data-cards=filled] .note-card{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 8px 20px -10px rgba(0,0,0,.6)}
+.set-acc{box-shadow:0 1px 2px rgba(0,0,0,.05),0 6px 18px -10px rgba(0,0,0,.2)}
+.set-acc[open]>summary{background:var(--surface2);background:color-mix(in srgb,var(--accent) 9%,var(--surface))}
+/* tema örneği: sol yarı aydınlık, sağ yarı koyu */
+.opt .tsw{display:flex;width:100%;height:28px;border-radius:7px;overflow:hidden;border:1px solid rgba(128,128,128,.3)}
+.opt .tsw i{display:block;flex:2}
+.opt .tsw i:nth-child(2),.opt .tsw i:nth-child(4){flex:1}
+/* zil ve rozet */
+.icon-btn.bell{position:relative}
+.icon-btn.bell .badge{position:absolute;top:5px;right:4px;min-width:17px;height:17px;padding:0 4px;border-radius:99px;background:var(--danger);color:#fff;font-size:10.5px;font-weight:700;line-height:17px;text-align:center}
+/* Bugün ekranındaki uyarı şeridi */
+.alert-banner{display:flex;align-items:center;gap:4px;margin:0 0 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:2px 2px 2px 12px}
+.alert-banner.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.alert-banner.danger{border-color:var(--danger);background:color-mix(in srgb,var(--danger) 10%,var(--surface))}
+.alert-banner .ab-main{flex:1;display:flex;align-items:center;gap:10px;text-align:left;padding:10px 0;font-size:calc(14px*var(--fs));font-weight:500;min-width:0}
+.alert-banner .ab-main span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.alert-banner.warn .ab-main svg.i{color:var(--warn)}
+.alert-banner.danger .ab-main svg.i{color:var(--danger)}
+/* uyarı listesi */
+.alert-list{display:flex;flex-direction:column;gap:8px;margin:6px 0 12px}
+.alert-item{display:flex;align-items:center;gap:10px;padding:10px 6px 10px 12px;border:1px solid var(--line);border-radius:12px;border-left-width:4px}
+.alert-item.danger{border-left-color:var(--danger)}.alert-item.danger>svg.i{color:var(--danger)}
+.alert-item.warn{border-left-color:var(--warn)}.alert-item.warn>svg.i{color:var(--warn)}
+.alert-item.info{border-left-color:var(--accent)}.alert-item.info>svg.i{color:var(--accent)}
+.alert-item .grow{font-size:calc(14.5px*var(--fs));min-width:0}
+.btn.sm-btn{min-height:34px;padding:0 12px;font-size:calc(13px*var(--fs))}
