@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.11.0';
+const VERSION = '1.11.1';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -575,7 +575,8 @@ const Cal = {
   async upsertRoutine(r) {
     if (!this.on() || this.cfg.routines === false || !r.toCal) return;
     if (!this.ready() || !this.cfg.def) { r._calPending = 1; return; }
-    const ev = { title: r.title, date: r.next, allDay: !r.time, start: r.time || '', end: '', notes: 'PUSULA rutini · ' + recText(r.rec), remind: r.time ? (r.remind || []) : null };
+    const ev = { title: r.title, date: r.next, allDay: !r.time, start: r.time || '', end: '', notes: 'PUSULA rutini · ' + recText(r.rec), remind: r.time ? (r.remind || []) : null,
+      rec: r.rec && r.rec.mode === 'cal' ? Object.assign({}, r.rec, { until: routineUntil(r) }) : null };
     try {
       if (r.gev && r.gev.id) { try { await this.patch(r.gev.cal, r.gev.id, ev); } catch (e) { if (e.status === 404 || e.status === 410) r.gev = null; else throw e; } }
       if (!r.gev || !r.gev.id) { const res = await this.insert(this.cfg.def, ev); r.gev = { id: res.id, cal: this.cfg.def }; }
@@ -757,7 +758,7 @@ const EN = {
   'Ne sıklıkla?': 'How often?', 'Her': 'Every', 'Gün': 'Day', 'Hafta': 'Week', 'Ay': 'Month', 'Yıl': 'Year', 'Belirli günler (isteğe bağlı)': 'Specific days (optional)', 'Ayın hangi günü?': 'Which day of the month?', 'Aynı gün': 'Same day', 'Son gün': 'Last day',
   'Nasıl sayılsın?': 'How to count?', 'Takvime göre': 'By calendar', 'Yaptıktan sonra': 'After done',
   'Takvime göre: tarih sabittir (ör. her ayın 5’i). Yaptıktan sonra: sayaç yaptığın gün yeniden başlar (ör. filtre değişiminden 3 ay sonra).': 'By calendar: the date is fixed (e.g. the 5th of every month). After done: the countdown restarts the day you do it (e.g. 3 months after changing the filter).',
-  'Sonraki tarih': 'Next date', 'Son yapılma': 'Last done', 'Maliyet (isteğe bağlı)': 'Cost (optional)', 'Servis, parça, detay…': 'Service, parts, details…', 'Geçmiş': 'History',
+  'Sonraki tarih': 'Next date', 'Son yapılma': 'Last done', 'Ne zamana kadar? (boş = süresiz)': 'Until when? (empty = no end)', 'En son ne zaman yaptın? (isteğe bağlı)': 'When did you last do it? (optional)', 'Tekrarlarıyla birlikte takviminde görünür; saat ve hatırlatma da yazılır': 'Shows in your calendar with all repeats, including time and reminders', 'Maliyet (isteğe bağlı)': 'Cost (optional)', 'Servis, parça, detay…': 'Service, parts, details…', 'Geçmiş': 'History',
   'Google Takvim’e yaz': 'Write to Google Calendar', 'Sonraki tarih takviminde tüm gün etkinlik olarak görünür': 'The next date shows as an all-day event in your calendar',
   'Tekrarlı işlerini buraya ekle: araç bakımı her 6 ayda, klima filtresi her 3 ayda, sigorta yenileme her yıl, bitki sulama 4 günde bir… “Yaptım” dediğinde sonraki tarih kendiliğinden hesaplanır.': 'Add your recurring chores here: car service every 6 months, AC filter every 3 months, insurance renewal every year, watering plants every 4 days… When you tap “Done it”, the next date is calculated automatically.',
   'Google Takvim': 'Google Calendar', 'Google Takvim bağlı': 'Google Calendar connected', 'Gösterilecek takvimler': 'Calendars to show', 'Takvim listesi için “Şimdi eşitle”ye dokun.': 'Tap “Sync now” to load your calendars.',
@@ -1350,8 +1351,10 @@ function evOccurs(e, d) {
   if (r.unit === 'year') { const y = B.getFullYear() - A.getFullYear(); return y % n === 0 && B.getMonth() === A.getMonth() && B.getDate() === Math.min(A.getDate(), last); }
   return false;
 }
+// Bitiş: r.until. 1.11 öncesinde "Son yapılma"ya ileri bir tarih yazıldıysa onu bitiş sayar.
+const routineUntil = r => r.until || (r.last && r.next && r.last > r.next && r.last > today() ? r.last : '');
 function routineOn(r, d) {
-  if (!r.next || d < r.next) return false; if (d === r.next) return true;
+  if (!r.next || d < r.next) return false; const u = routineUntil(r); if (u && d > u) return false; if (d === r.next) return true;
   if (!r.rec || r.rec.mode !== 'cal') return false;
   let x = r.next; for (let i = 0; i < 800; i++) { x = nextOcc(x, r.rec); if (x === d) return true; if (x > d) return false; }
   return false;
@@ -1397,7 +1400,7 @@ function dueBadge(next) {
   return '<span class="due">' + d + ' gün</span>';
 }
 function routineRow(r) {
-  return '<div class="row rt-row" data-act="rt-edit" data-id="' + r.id + '"><button class="check" data-act="rt-done" data-id="' + r.id + '" aria-label="Yaptım">' + icon('check') + '</button><div class="row-main"><div class="row-title">' + esc(r.title) + '</div><div class="row-meta"><span class="u">' + esc(recText(r.rec)) + (r.time ? ' · ' + r.time : '') + '</span>' + ((r.remind || []).length && r.time ? '<span>' + icon('bell', 'xs') + '</span>' : '') + (r.last ? '<span>· son: ' + relDay(r.last) + '</span>' : '') + (r.gev ? '<span>' + icon('event', 'xs') + '</span>' : '') + '</div></div>' + (r.next ? dueBadge(r.next) : '') + '</div>';
+  return '<div class="row rt-row" data-act="rt-edit" data-id="' + r.id + '"><button class="check" data-act="rt-done" data-id="' + r.id + '" aria-label="Yaptım">' + icon('check') + '</button><div class="row-main"><div class="row-title">' + esc(r.title) + '</div><div class="row-meta"><span class="u">' + esc(recText(r.rec)) + (r.time ? ' · ' + r.time : '') + (routineUntil(r) ? ' · ' + Lx('bitiş ', 'until ') + fmtShort(routineUntil(r)) : '') + '</span>' + ((r.remind || []).length && r.time ? '<span>' + icon('bell', 'xs') + '</span>' : '') + (r.last && r.last <= today() ? '<span>· son: ' + relDay(r.last) + '</span>' : '') + (r.gev ? '<span>' + icon('event', 'xs') + '</span>' : '') + '</div></div>' + (r.next ? dueBadge(r.next) : '') + '</div>';
 }
 function viewRoutines() {
   const t0 = today(), wk = addDays(t0, 7);
@@ -1418,10 +1421,10 @@ function editRoutine(r) {
     recEditor(d.rec) +
     '<div class="field-row"><label class="field"><span>Sonraki tarih</span><input type="date" class="input" name="next" value="' + (d.next || '') + '"></label><label class="field"><span>Saat (isteğe bağlı)</span><input type="time" class="input" name="rtime" value="' + (d.time || '') + '"></label></div>' +
     remindEditor(d.remind) +
-    '<label class="field"><span>Son yapılma</span><input type="date" class="input" name="last" value="' + (d.last || '') + '"></label>' +
+    '<div class="field-row"><label class="field"><span>Ne zamana kadar? (boş = süresiz)</span><input type="date" class="input" name="runtil" value="' + routineUntil(d) + '"></label><label class="field"><span>En son ne zaman yaptın? (isteğe bağlı)</span><input type="date" class="input" name="last" value="' + (routineUntil(d) && d.last === routineUntil(d) && !d.until ? '' : (d.last || '')) + '"></label></div>' +
     '<label class="field"><span>Maliyet (isteğe bağlı)</span><input type="number" inputmode="decimal" step="any" class="input" name="cost" placeholder="₺" value="' + (d.cost == null ? '' : d.cost) + '"></label>' +
     '<div class="field"><span>Not</span><textarea class="input" name="notes" rows="2" placeholder="Servis, parça, detay…">' + esc(d.notes || '') + '</textarea></div>' +
-    (Cal.on() ? '<div class="set-row" style="margin-top:8px"><div class="grow"><div>Google Takvim’e yaz</div><div class="sub">Sonraki tarih takviminde görünür; saat ve hatırlatma da yazılır</div></div><button type="button" class="switch ' + (d.toCal ? 'on' : '') + '" data-act="switch" data-name="toCal" aria-label="Aç/kapat"></button></div>' : '') +
+    (Cal.on() ? '<div class="set-row" style="margin-top:8px"><div class="grow"><div>Google Takvim’e yaz</div><div class="sub">Tekrarlarıyla birlikte takviminde görünür; saat ve hatırlatma da yazılır</div></div><button type="button" class="switch ' + (d.toCal ? 'on' : '') + '" data-act="switch" data-name="toCal" aria-label="Aç/kapat"></button></div>' : '') +
     (hist.length ? '<div class="field"><span>Geçmiş</span><div class="rt-hist">' + hist.map(x => '<div><span>' + fmtShort(x.d) + '</span>' + (x.cost != null ? '<b>' + fmtNum(x.cost) + ' ₺</b>' : '') + '</div>').join('') + '</div></div>' : '') +
     '</div><div class="sheet-foot">' + (isNew ? '' : '<button class="btn danger-ghost" data-act="rt-delete">' + icon('trash') + ' Sil</button>') + '<button class="btn primary" data-act="rt-save">Kaydet</button></div>');
   if (isNew) setTimeout(() => { const i = $('#sheetRoot [name=title]'); if (i) i.focus(); }, 80);
@@ -1430,11 +1433,12 @@ async function saveRoutine() {
   const d = S.draft; const title = fval('title').trim();
   if (!title) { $('#sheetRoot [name=title]').classList.add('err'); return; }
   const base = S.items.get(d.id) || d;
-  const rec = readRec(); const last = fval('last') || ''; let next = fval('next');
+  const rec = readRec(); let last = fval('last') || ''; let next = fval('next'); let until = fval('runtil') || '';
+  if (last > today()) { if (!until) until = last; last = ''; }
   if (!next) next = last ? nextOcc(last, rec) : today();
   const cost = parseFloat(fval('cost'));
   const sw = $('#sheetRoot .switch[data-name=toCal]');
-  Object.assign(base, { title, rec, next, last, time: fval('rtime') || '', remind: readRemind(), cost: isNaN(cost) ? null : cost, notes: fval('notes').trim(), toCal: sw ? sw.classList.contains('on') : !!base.toCal });
+  Object.assign(base, { title, rec, next, last, until, time: fval('rtime') || '', remind: readRemind(), cost: isNaN(cost) ? null : cost, notes: fval('notes').trim(), toCal: sw ? sw.classList.contains('on') : !!base.toCal });
   closeSheet(); await save(base);
   if (base.toCal) Cal.upsertRoutine(base); else if (base.gev && Cal.ready()) { const g = base.gev; base.gev = null; Cal.del(g.cal, g.id).catch(() => {}); save(base, { silent: true }); }
 }
