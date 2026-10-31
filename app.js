@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.10.1';
+const VERSION = '1.11.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -528,7 +528,7 @@ const Cal = {
     const date = allDay ? e.start.date : (e.start && e.start.dateTime || '').slice(0, 10);
     const hm = x => { if (!x) return ''; const d = new Date(x); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
     const localDate = allDay ? date : ymd(new Date(e.start.dateTime));
-    return { gid: e.id, cal: cal.id, color: cal.color, calName: cal.name, title: e.summary || '(başlıksız)', date: localDate, allDay, start: allDay ? '' : hm(e.start.dateTime), end: allDay ? '' : hm(e.end && e.end.dateTime), endDate: allDay && e.end ? e.end.date : '', notes: e.description || '', loc: e.location || '', recurring: !!e.recurringEventId };
+    return { gid: e.id, cal: cal.id, color: cal.color, calName: cal.name, title: e.summary || '(başlıksız)', date: localDate, allDay, start: allDay ? '' : hm(e.start.dateTime), end: allDay ? '' : hm(e.end && e.end.dateTime), endDate: allDay && e.end ? e.end.date : '', notes: e.description || '', loc: e.location || '', recurring: !!e.recurringEventId, remind: e.reminders && !e.reminders.useDefault ? (e.reminders.overrides || []).filter(o => o.method === 'popup').map(o => o.minutes) : null, remindDefault: !!(e.reminders && e.reminders.useDefault) };
   },
   async fetchRange(from, to) {
     const all = [];
@@ -564,6 +564,8 @@ const Cal = {
       b.start = { dateTime: ev.date + 'T' + ev.start + ':00', timeZone: tz }; b.end = { dateTime: ev.date + 'T' + end + ':00', timeZone: tz };
     }
     if (ev.rec) b.recurrence = [rrule(ev.rec, ev.allDay || !ev.start)];
+    if (ev.remind && ev.remind.length && !(ev.allDay || !ev.start)) b.reminders = { useDefault: false, overrides: ev.remind.slice(0, 5).map(m => ({ method: 'popup', minutes: Math.min(40320, m) })) };
+    else if (ev.remind && ev.remindOff) b.reminders = { useDefault: false, overrides: [] };
     return b;
   },
   async insert(calId, ev) { const r = await Drive.api(CAL_API + '/calendars/' + encodeURIComponent(calId) + '/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.body(ev)) }); return r.json(); },
@@ -573,7 +575,7 @@ const Cal = {
   async upsertRoutine(r) {
     if (!this.on() || this.cfg.routines === false || !r.toCal) return;
     if (!this.ready() || !this.cfg.def) { r._calPending = 1; return; }
-    const ev = { title: r.title, date: r.next, allDay: true, notes: 'PUSULA rutini · ' + recText(r.rec) };
+    const ev = { title: r.title, date: r.next, allDay: !r.time, start: r.time || '', end: '', notes: 'PUSULA rutini · ' + recText(r.rec), remind: r.time ? (r.remind || []) : null };
     try {
       if (r.gev && r.gev.id) { try { await this.patch(r.gev.cal, r.gev.id, ev); } catch (e) { if (e.status === 404 || e.status === 410) r.gev = null; else throw e; } }
       if (!r.gev || !r.gev.id) { const res = await this.insert(this.cfg.def, ev); r.gev = { id: res.id, cal: this.cfg.def }; }
@@ -1186,6 +1188,7 @@ function editTask(t) {
     '<div class="quick-dates"><button type="button" class="chip sm" data-act="set-date" data-v="0">Bugün</button><button type="button" class="chip sm" data-act="set-date" data-v="1">Yarın</button><button type="button" class="chip sm" data-act="set-date" data-v="7">1 hafta sonra</button><button type="button" class="chip sm" data-act="set-date" data-v="">Tarihsiz</button></div>' +
     '<div class="field"><span>Öncelik</span>' + seg('priority', [[0, 'Yok'], [1, 'Düşük'], [2, 'Orta'], [3, 'Yüksek']], d.priority || 0) + '</div>' +
     '<label class="field"><span>Tekrar</span><select class="input" name="repeat">' + REPEATS.map(r => '<option value="' + r[0] + '" ' + (d.repeat === r[0] ? 'selected' : '') + '>' + r[1] + '</option>').join('') + '</select></label>' +
+    remindEditor(d.remind) +
     '<div class="field"><span>Etiketler</span>' + tagPicker('task', d.tags) + '</div>' +
     '</div><div class="sheet-foot">' + (isNew ? '' : '<button class="btn danger-ghost" data-act="delete-task">' + icon('trash') + ' Sil</button>') + '<button class="btn primary" data-act="save-task">Kaydet</button></div>');
   if (isNew) setTimeout(() => { const i = $('#sheetRoot [name=title]'); if (i) i.focus(); }, 80);
@@ -1194,7 +1197,7 @@ async function saveTask() {
   const d = S.draft; const title = fval('title').trim();
   if (!title) { $('#sheetRoot [name=title]').classList.add('err'); $('#sheetRoot [name=title]').focus(); return; }
   const base = S.items.get(d.id) || d;
-  Object.assign(base, { title, notes: fval('notes').trim(), due: fval('due') || null, time: fval('time') || null, priority: Number(segVal('priority') || 0), repeat: fval('repeat'), tags: pickedTags($('#sheetRoot')) });
+  Object.assign(base, { title, notes: fval('notes').trim(), due: fval('due') || null, time: fval('time') || null, priority: Number(segVal('priority') || 0), repeat: fval('repeat'), tags: pickedTags($('#sheetRoot')), remind: readRemind() });
   if (base.repeat !== 'none' && !base.due) base.due = today();
   closeSheet(); await save(base);
 }
@@ -1208,6 +1211,11 @@ function gEventRow(e) {
   return '<div class="row gev" data-act="gev-edit" data-gid="' + esc(e.gid) + '"><div class="ev-time">' + (e.allDay || !e.start ? 'Tüm gün' : e.start + (e.end ? '<small>' + e.end + '</small>' : '')) + '</div><div class="ev-bar" style="background:' + esc(e.color || 'var(--accent)') + '"></div><div class="row-main"><div class="row-title">' + esc(e.title) + '</div><div class="row-meta"><span class="u">' + esc(e.calName || 'Google') + '</span>' + (e.loc ? ' · <span class="u">' + esc(e.loc) + '</span>' : '') + '</div></div></div>';
 }
 function viewCalendar() {
+  if (typeof calViewSwitch === 'function') { const v = calViewSwitch(); if (v) return v; }
+  return calViewTabs() + viewCalMonth();
+}
+function calViewTabs() { return typeof calTabsHtml === 'function' ? calTabsHtml() : ''; }
+function viewCalMonth() {
   const t0 = today(); const m = S.calMonth || S.calSel.slice(0, 7); S.calMonth = m;
   if (Cal.ready() && !Cal.busy && (!Cal.fetched[m] || Date.now() - Cal.fetched[m] > 300000)) {
     Cal.fetched[m] = Date.now();
@@ -1220,7 +1228,7 @@ function viewCalendar() {
   const evAll = list('event'); for (let i = 0; i < cellsN; i++) { const d = addDays(start, i); const n = evAll.filter(e => evOccurs(e, d)).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += n; } }
   list('task').forEach(t => { if (t.due && !t.done) { marks[t.due] = marks[t.due] || { e: 0, t: 0 }; marks[t.due].t++; } });
   if (Cal.on()) Object.keys(Cal.byDate).forEach(d => { if (Cal.byDate[d].length) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += Cal.byDate[d].length; } });
-  list('routine').forEach(r => { if (r.next) { marks[r.next] = marks[r.next] || { e: 0, t: 0 }; marks[r.next].t++; } });
+  const rtAll = list('routine'); for (let i = 0; i < cellsN; i++) { const d = addDays(start, i); const n = rtAll.filter(r => routineOn(r, d)).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].t += n; } }
   let cells = '';
   for (let i = 0; i < cellsN; i++) {
     const d = addDays(start, i); const mk = marks[d];
@@ -1230,7 +1238,7 @@ function viewCalendar() {
   const ev = eventsOn(S.calSel).sort(eventSort);
   const tk = planOn('tasks') ? list('task').filter(t => t.due === S.calSel).sort(taskSort) : [];
   const gev = Cal.on() ? Cal.forDate(S.calSel) : [];
-  const rts = list('routine').filter(r => r.next === S.calSel);
+  const rts = list('routine').filter(r => routineOn(r, S.calSel));
   const agenda = '<section class="card"><div class="card-head"><div class="card-title">' + relDayLong(S.calSel) + '</div><div class="head-links"><button class="link" data-act="add-routine-day">+ Tekrarlı iş</button><button class="link" data-act="add-event">+ Etkinlik</button></div></div>' +
     (ev.length || tk.length || gev.length || rts.length ? gev.map(gEventRow).join('') + ev.map(e => eventRow(e, S.calSel)).join('') + rts.map(routineRow).join('') + tk.map(taskRow).join('') : '<div class="empty">Bu gün için kayıt yok.</div>') +
     (Cal.on() && !Cal.ready() ? '<button class="link cal-refresh" data-act="sync-now">Google Takvim’i yenile</button>' : '') + '</section>';
@@ -1251,6 +1259,7 @@ function editEvent(e, date, gev) {
     '<div class="field-row"><label class="field"><span>Tarih</span><input type="date" class="input" name="date" value="' + d.date + '"></label><div class="field toggle-field"><span>Tüm gün</span><button type="button" class="switch ' + (d.allDay ? 'on' : '') + '" data-act="switch" data-name="allDay" aria-label="Tüm gün"></button></div></div>' +
     '<div class="field-row times ' + (d.allDay ? 'hide' : '') + '"><label class="field"><span>Başlangıç</span><input type="time" class="input" name="start" value="' + (d.start || '') + '"></label><label class="field"><span>Bitiş</span><input type="time" class="input" name="end" value="' + (d.end || '') + '"></label></div>' +
     (gev ? '' : '<div class="field"><span>Renk</span><div class="chips">') + (gev ? [] : EV_COLORS).map(c => '<button type="button" class="swatch ' + ((d.color || '') === c ? 'on' : '') + '" data-act="pick-color" data-c="' + c + '" style="background:' + (c || 'var(--accent)') + '" aria-label="Renk"></button>').join('') + (gev ? '' : '</div></div>') +
+    remindEditor(d.remind) +
     (gev ? (gev.recurring ? '<p class="muted sm">' + icon('repeat', 'sm') + ' <span>Google’da tekrarlanan etkinlik; burada sadece bu gün değişir. Tekrarı Google Takvim’den düzenleyebilirsin.</span></p>' : '') : evRecEditor(d.rec)) +
     '<div class="field"><span>Not</span><textarea class="input" name="notes" rows="3" placeholder="Yer, detay…">' + esc(d.notes) + '</textarea></div>' +
     '</div><div class="sheet-foot">' + (isNew ? '' : (d.rec && d._occ ? '<button class="btn danger-ghost" data-act="delete-event-occ">' + icon('trash') + ' <span>Sadece bu gün</span></button><button class="btn danger-ghost" data-act="delete-event">Tümünü sil</button>' : '<button class="btn danger-ghost" data-act="delete-event">' + icon('trash') + ' Sil</button>')) + '<button class="btn primary" data-act="save-event">Kaydet</button></div>');
@@ -1263,7 +1272,8 @@ async function saveEvent() {
   const target = d.gid ? d.cal : (fval('target') || 'local');
   const rec = d.gid ? null : readEvRec();
   if (target !== 'local') {
-    const ev = { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim(), rec };
+    const ev = { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim(), rec, remind: readRemind() };
+    if (d.gid && d.remind && d.remind.length && !ev.remind.length) ev.remindOff = true;
     if (!navigator.onLine) return toast('Google Takvim için internet gerekli');
     if (!Drive.tokenOk(GCAL_SCOPE)) { try { await Drive.requestToken(); } catch (e) { return toast(e.message); } }
     try {
@@ -1274,7 +1284,7 @@ async function saveEvent() {
     return;
   }
   const base = S.items.get(d.id) || d;
-  Object.assign(base, { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim(), color: d.color || '', rec });
+  Object.assign(base, { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim(), color: d.color || '', rec, remind: readRemind() });
   if (!rec) delete base.exdates;
   S.calSel = (d._occ && rec) ? d._occ : base.date; S.calMonth = base.date.slice(0, 7);
   closeSheet(); await save(base);
@@ -1314,6 +1324,20 @@ function recEditor(rec, noMode) {
     '<label class="field rec-month ' + (rec.unit === 'month' ? '' : 'hide') + '"><span>Ayın hangi günü?</span><select class="input" name="recMday"><option value="">Aynı gün</option>' + Array.from({ length: 31 }, (_, i) => '<option value="' + (i + 1) + '" ' + (+rec.mday === i + 1 ? 'selected' : '') + '>' + (i + 1) + '</option>').join('') + '<option value="last" ' + (rec.mday === 'last' ? 'selected' : '') + '>Son gün</option></select></label>' +
     (noMode ? '' : '<div class="field"><span>Nasıl sayılsın?</span>' + seg('recMode', [['cal', 'Takvime göre'], ['after', 'Yaptıktan sonra']], rec.mode || 'cal') + '<div class="sub muted sm rec-hint">Takvime göre: tarih sabittir (ör. her ayın 5’i). Yaptıktan sonra: sayaç yaptığın gün yeniden başlar (ör. filtre değişiminden 3 ay sonra).</div></div>') + '</div>';
 }
+/* Hatırlatma: item.remind = [dakika önce, ...] — saati olan işlerde çalışır */
+const REMIND_OPTS = [[0, 'Tam zamanında'], [10, '10 dk'], [30, '30 dk'], [60, '1 saat'], [120, '2 saat'], [1440, '1 gün']];
+function remindEditor(list) {
+  const cur = (list || []).map(Number); const extra = cur.filter(m => !REMIND_OPTS.some(o => o[0] === m));
+  return '<div class="field rem-ed"><span>Hatırlat (önce)</span><div class="chips rem-chips">' + REMIND_OPTS.map(o => '<button type="button" class="chip sm ' + (cur.includes(o[0]) ? 'on' : '') + '" data-act="toggle-on" data-m="' + o[0] + '">' + o[1] + '</button>').join('') +
+    extra.map(m => '<button type="button" class="chip sm on" data-act="toggle-on" data-m="' + m + '">' + remText(m) + '</button>').join('') +
+    '<input class="chip-input rem-custom" type="number" min="1" inputmode="numeric" placeholder="+ dk" aria-label="Başka süre (dakika)"></div><div class="sub muted sm rem-hint">Saat girilmişse çalışır. Google Takvim bağlıysa uygulama kapalıyken de telefonuna bildirim gelir.</div></div>';
+}
+function readRemind() {
+  const out = $$('#sheetRoot .rem-chips .chip.on').map(b => +b.dataset.m);
+  const c = parseInt(($('#sheetRoot .rem-custom') || {}).value, 10); if (c > 0) out.push(c);
+  return Array.from(new Set(out)).sort((a, b) => a - b);
+}
+function remText(m) { if (!m) return tr('Tam zamanında'); if (m % 1440 === 0) return Lx(m / 1440 + ' gün', m / 1440 + ' d'); if (m % 60 === 0) return Lx(m / 60 + ' saat', m / 60 + ' h'); return Lx(m + ' dk', m + ' min'); }
 /* Tekrarlı etkinlikler: e.rec = { mode: 'cal', every, unit, wdays, mday, until }, e.exdates = [atlanan günler] */
 function evOccurs(e, d) {
   if (!e.rec) return e.date === d;
@@ -1324,6 +1348,12 @@ function evOccurs(e, d) {
   const A = parseYmd(s), B = parseYmd(d), last = new Date(B.getFullYear(), B.getMonth() + 1, 0).getDate();
   if (r.unit === 'month') { const mo = (B.getFullYear() - A.getFullYear()) * 12 + B.getMonth() - A.getMonth(); if (mo % n) return false; return B.getDate() === (r.mday === 'last' ? last : Math.min(+r.mday || A.getDate(), last)); }
   if (r.unit === 'year') { const y = B.getFullYear() - A.getFullYear(); return y % n === 0 && B.getMonth() === A.getMonth() && B.getDate() === Math.min(A.getDate(), last); }
+  return false;
+}
+function routineOn(r, d) {
+  if (!r.next || d < r.next) return false; if (d === r.next) return true;
+  if (!r.rec || r.rec.mode !== 'cal') return false;
+  let x = r.next; for (let i = 0; i < 800; i++) { x = nextOcc(x, r.rec); if (x === d) return true; if (x > d) return false; }
   return false;
 }
 const eventsOn = d => list('event').filter(e => evOccurs(e, d));
@@ -1367,7 +1397,7 @@ function dueBadge(next) {
   return '<span class="due">' + d + ' gün</span>';
 }
 function routineRow(r) {
-  return '<div class="row rt-row" data-act="rt-edit" data-id="' + r.id + '"><button class="check" data-act="rt-done" data-id="' + r.id + '" aria-label="Yaptım">' + icon('check') + '</button><div class="row-main"><div class="row-title">' + esc(r.title) + '</div><div class="row-meta"><span class="u">' + esc(recText(r.rec)) + '</span>' + (r.last ? '<span>· son: ' + relDay(r.last) + '</span>' : '') + (r.gev ? '<span>' + icon('event', 'xs') + '</span>' : '') + '</div></div>' + (r.next ? dueBadge(r.next) : '') + '</div>';
+  return '<div class="row rt-row" data-act="rt-edit" data-id="' + r.id + '"><button class="check" data-act="rt-done" data-id="' + r.id + '" aria-label="Yaptım">' + icon('check') + '</button><div class="row-main"><div class="row-title">' + esc(r.title) + '</div><div class="row-meta"><span class="u">' + esc(recText(r.rec)) + (r.time ? ' · ' + r.time : '') + '</span>' + ((r.remind || []).length && r.time ? '<span>' + icon('bell', 'xs') + '</span>' : '') + (r.last ? '<span>· son: ' + relDay(r.last) + '</span>' : '') + (r.gev ? '<span>' + icon('event', 'xs') + '</span>' : '') + '</div></div>' + (r.next ? dueBadge(r.next) : '') + '</div>';
 }
 function viewRoutines() {
   const t0 = today(), wk = addDays(t0, 7);
@@ -1386,10 +1416,12 @@ function editRoutine(r) {
   openSheet(sheetHead(isNew ? 'Yeni rutin' : 'Rutini düzenle') + '<div class="sheet-body">' +
     '<input class="input big" name="title" placeholder="Örn. Araç bakımı" value="' + esc(d.title) + '" autocomplete="off" enterkeyhint="done">' +
     recEditor(d.rec) +
-    '<div class="field-row"><label class="field"><span>Sonraki tarih</span><input type="date" class="input" name="next" value="' + (d.next || '') + '"></label><label class="field"><span>Son yapılma</span><input type="date" class="input" name="last" value="' + (d.last || '') + '"></label></div>' +
+    '<div class="field-row"><label class="field"><span>Sonraki tarih</span><input type="date" class="input" name="next" value="' + (d.next || '') + '"></label><label class="field"><span>Saat (isteğe bağlı)</span><input type="time" class="input" name="rtime" value="' + (d.time || '') + '"></label></div>' +
+    remindEditor(d.remind) +
+    '<label class="field"><span>Son yapılma</span><input type="date" class="input" name="last" value="' + (d.last || '') + '"></label>' +
     '<label class="field"><span>Maliyet (isteğe bağlı)</span><input type="number" inputmode="decimal" step="any" class="input" name="cost" placeholder="₺" value="' + (d.cost == null ? '' : d.cost) + '"></label>' +
     '<div class="field"><span>Not</span><textarea class="input" name="notes" rows="2" placeholder="Servis, parça, detay…">' + esc(d.notes || '') + '</textarea></div>' +
-    (Cal.on() ? '<div class="set-row" style="margin-top:8px"><div class="grow"><div>Google Takvim’e yaz</div><div class="sub">Sonraki tarih takviminde tüm gün etkinlik olarak görünür</div></div><button type="button" class="switch ' + (d.toCal ? 'on' : '') + '" data-act="switch" data-name="toCal" aria-label="Aç/kapat"></button></div>' : '') +
+    (Cal.on() ? '<div class="set-row" style="margin-top:8px"><div class="grow"><div>Google Takvim’e yaz</div><div class="sub">Sonraki tarih takviminde görünür; saat ve hatırlatma da yazılır</div></div><button type="button" class="switch ' + (d.toCal ? 'on' : '') + '" data-act="switch" data-name="toCal" aria-label="Aç/kapat"></button></div>' : '') +
     (hist.length ? '<div class="field"><span>Geçmiş</span><div class="rt-hist">' + hist.map(x => '<div><span>' + fmtShort(x.d) + '</span>' + (x.cost != null ? '<b>' + fmtNum(x.cost) + ' ₺</b>' : '') + '</div>').join('') + '</div></div>' : '') +
     '</div><div class="sheet-foot">' + (isNew ? '' : '<button class="btn danger-ghost" data-act="rt-delete">' + icon('trash') + ' Sil</button>') + '<button class="btn primary" data-act="rt-save">Kaydet</button></div>');
   if (isNew) setTimeout(() => { const i = $('#sheetRoot [name=title]'); if (i) i.focus(); }, 80);
@@ -1402,7 +1434,7 @@ async function saveRoutine() {
   if (!next) next = last ? nextOcc(last, rec) : today();
   const cost = parseFloat(fval('cost'));
   const sw = $('#sheetRoot .switch[data-name=toCal]');
-  Object.assign(base, { title, rec, next, last, cost: isNaN(cost) ? null : cost, notes: fval('notes').trim(), toCal: sw ? sw.classList.contains('on') : !!base.toCal });
+  Object.assign(base, { title, rec, next, last, time: fval('rtime') || '', remind: readRemind(), cost: isNaN(cost) ? null : cost, notes: fval('notes').trim(), toCal: sw ? sw.classList.contains('on') : !!base.toCal });
   closeSheet(); await save(base);
   if (base.toCal) Cal.upsertRoutine(base); else if (base.gev && Cal.ready()) { const g = base.gev; base.gev = null; Cal.del(g.cal, g.id).catch(() => {}); save(base, { silent: true }); }
 }
@@ -1734,7 +1766,7 @@ function viewSettings() {
     acc('look', 'Görünüm', 'today', lookBody(st)) +
     acc('titles', 'Başlıklar ve bölümler', 'tag', titles) +
     acc('todaycards', 'Bugün ekranı', 'task', orderRows('today', st.today, CARD_LABELS)) +
-    acc('alerts', 'Uyarılar', 'bell', '<p class="muted sm" style="margin:10px 0 4px">Sağ üstteki zilde ve Bugün ekranının üstündeki şeritte görünür. Bir uyarıyı gizlersen o gün bir daha gösterilmez.</p>' +
+    acc('alerts', 'Uyarılar', 'bell', (typeof remindSettingsHtml === 'function' ? remindSettingsHtml() : '') + '<p class="muted sm" style="margin:10px 0 4px">Sağ üstteki zilde ve Bugün ekranının üstündeki şeritte görünür. Bir uyarıyı gizlersen o gün bir daha gösterilmez.</p>' +
       '<div class="set-row"><div class="grow"><div>Bugün ekranında uyarı şeridi</div></div><button class="switch ' + ((st.alerts || {}).banner !== false ? 'on' : '') + '" data-act="alert-toggle" data-k="banner" aria-label="Aç/kapat"></button></div>' +
       Object.keys(ALERT_TYPES).map(k => '<div class="set-row"><div class="grow">' + ALERT_TYPES[k] + '</div><button class="switch ' + ((st.alerts || {})[k] !== false ? 'on' : '') + '" data-act="alert-toggle" data-k="' + k + '" aria-label="Aç/kapat"></button></div>').join('')) +
     (typeof gmailSettingsBody === 'function' ? acc('gmail', 'Gmail', 'mail', gmailSettingsBody()) : '') +

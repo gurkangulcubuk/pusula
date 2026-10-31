@@ -738,3 +738,52 @@ body{font-size:calc(16px*var(--fs))}
 .badge-s.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .srow.static{cursor:default}
 .srow .btn.sm-btn{flex:0 0 auto}
+/* ===== 1.11: Ay/Hafta/Gün görünümleri, hatırlatmalar ===== */
+.cal-views{margin-bottom:10px}.cal-views button{flex:1 1 0}
+.pi{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--line);cursor:pointer;min-width:0}
+.pi:first-child{border-top:0}
+.pi.done .pi-title{text-decoration:line-through;color:var(--faint)}
+.pi-time{flex:0 0 52px;font-size:calc(13px*var(--fs));font-weight:650;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;line-height:1.15}
+.pi-time small{color:var(--faint);font-weight:500}
+.pi-bar{flex:0 0 4px;align-self:stretch;border-radius:4px;min-height:22px}
+.pi-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(14.5px*var(--fs))}
+.pi-ico{display:flex;gap:4px;color:var(--faint);flex:0 0 auto}
+.pi-ico svg.i{width:13px;height:13px}
+.wk{display:flex;flex-direction:column;gap:8px}
+.wk-day{padding:0;overflow:hidden}
+.wk-day.today{box-shadow:inset 3px 0 0 var(--accent)}
+.wk-head{display:flex;align-items:center;justify-content:space-between;padding:6px 6px 6px 12px;background:color-mix(in srgb,var(--tint,var(--accent)) var(--head-mix,10%),var(--surface));border-bottom:1px solid var(--line)}
+.wk-date{display:flex;gap:8px;align-items:baseline;font-size:calc(14px*var(--fs))}
+.wk-date span{color:var(--muted)}
+.wk-day.today .wk-date b{color:var(--accent)}
+.wk-empty{padding:8px 12px;color:var(--faint)}
+@media (min-width:900px){.wk{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;align-items:start}.wk .pi{flex-wrap:wrap;gap:4px 8px;padding:8px}.wk .pi-time{flex-basis:auto;flex-direction:row;gap:4px}.wk .pi-title{flex-basis:100%;white-space:normal}.wk .pi-bar{display:none}}
+.day-all{padding:0;overflow:hidden}
+.day-lbl{padding:8px 12px 4px;font-size:calc(12px*var(--fs));color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+.day-grid{padding:0;overflow:hidden}
+.hr{display:flex;border-top:1px solid var(--line);min-height:46px}
+.hr:first-child{border-top:0}
+.hr.now{box-shadow:inset 3px 0 0 var(--danger)}
+.hr-lbl{flex:0 0 58px;font-size:calc(12.5px*var(--fs));color:var(--faint);padding:8px 0 0 10px;text-align:left;align-self:stretch;font-variant-numeric:tabular-nums}
+.hr.now .hr-lbl{color:var(--danger);font-weight:700}
+.hr-body{flex:1;min-width:0;border-left:1px solid var(--line)}
+.hr-body .pi{border-top:0}
+.hr-add{width:100%;height:100%;min-height:46px}
+.cal-add-bar{display:flex;gap:8px;margin-top:10px}.cal-add-bar .btn{flex:1}
+.rem-chips{align-items:center}
+.rem-custom{width:78px}
+#remBox{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding:calc(14px + env(safe-area-inset-top)) 12px 0;background:rgba(0,0,0,.35);animation:fade .2s}
+.rem-card{width:100%;max-width:520px;background:var(--surface);border:1px solid var(--accent);border-radius:18px;box-shadow:0 14px 40px rgba(0,0,0,.45);padding:14px;display:flex;flex-direction:column;gap:10px;animation:up .25s}
+.rem-card>svg.i{color:var(--accent);width:28px;height:28px;animation:ring 1s ease-in-out 3}
+@keyframes ring{0%,100%{transform:rotate(0)}20%{transform:rotate(16deg)}40%{transform:rotate(-14deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-6deg)}}
+.rem-list{display:flex;flex-direction:column;gap:8px}
+.rem-item{display:flex;align-items:center;gap:10px}
+.rem-item .grow{display:flex;flex-direction:column;min-width:0}
+.rem-item b{font-size:calc(17px*var(--fs))}
+.rem-item span{color:var(--muted);font-size:calc(13.5px*var(--fs))}
+.rem-sounds{margin-bottom:6px}
+.help-steps{padding-left:20px;line-height:1.6}
+[data-cards] .card.wk-day,[data-cards] .card.day-grid,[data-cards] .card.day-all{padding:0}
+[data-cards=outline] .card.wk-day,[data-cards=outline] .card.day-grid,[data-cards=outline] .card.day-all{overflow:hidden}
+.wk-date span{white-space:nowrap}
+@media (min-width:900px){.wk-head{padding:6px 4px 6px 10px}.wk-date{flex-direction:column;gap:0}.wk-date span{font-size:calc(12px*var(--fs))}}

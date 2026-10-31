@@ -1,6 +1,6 @@
 /* PUSULA — offline çalışma için önbellek */
-const CACHE = 'pusula-v1.10.1';
-const ASSETS = ['./', './index.html', './styles.css', './app.js', './tools.js', './mail.js', './feedback.js', './words-tr.txt', './words-en.txt', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png',
+const CACHE = 'pusula-v1.11.0';
+const ASSETS = ['./', './index.html', './styles.css', './app.js', './tools.js', './mail.js', './feedback.js', './planner.js', './words-tr.txt', './words-en.txt', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png',
   './fonts/carlito-400.woff2', './fonts/carlito-400-ext.woff2', './fonts/carlito-700.woff2', './fonts/carlito-700-ext.woff2', './fonts/source-sans-3.woff2', './fonts/source-sans-3-ext.woff2',
   './fonts/plex-400.woff2', './fonts/plex-400-ext.woff2', './fonts/plex-500.woff2', './fonts/plex-500-ext.woff2', './fonts/plex-600.woff2', './fonts/plex-600-ext.woff2', './fonts/plex-700.woff2', './fonts/plex-700-ext.woff2'];
 
@@ -24,4 +24,8 @@ self.addEventListener('fetch', e => {
     if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
     return res;
   })));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => { for (const c of list) { if ('focus' in c) return c.focus(); } return self.clients.openWindow('./'); }));
 });
