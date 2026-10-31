@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -31,6 +31,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
 /* ===================== İkonlar ===================== */
 const ICONS = {
+  tools: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
   today: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   plan: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4M9 15.2l2 2 4-4"/>',
   info: '<path d="M5 4.5h11a3 3 0 0 1 3 3V20H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/>',
@@ -125,37 +126,60 @@ async function save(item, opts) {
 async function remove(item, opts) { item.deleted = true; return save(item, opts); }
 
 /* ===================== Ayarlar & tema ===================== */
-const LOOK_DEFAULTS = { theme: 'dark', themeId: 'notr', accent: 'theme', cards: 'filled', font: 'plex', fs: 1, density: 'normal', tabLabels: true, titleStyle: 'classic' };
+const LOOK_DEFAULTS = { theme: 'dark', themeId: 'notr', tone: 'net', accent: 'theme', cards: 'filled', font: 'plex', fs: 1, density: 'normal', tabLabels: true, titleStyle: 'classic' };
 const DEFAULT_SETTINGS = Object.assign({
   id: 'settings', type: 'settings', name: '', paper: 'lines', look: 4, lang: 'tr', titles: {}, custom: [], alerts: {},
   today: [{ k: 'tasks', on: true }, { k: 'events', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }, { k: 'goals', on: true }, { k: 'pinned', on: true }],
   plan: [{ k: 'tasks', on: true }, { k: 'calendar', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }],
-  notes: true, updated: 0
+  notes: true, tools: true, updated: 0
 }, LOOK_DEFAULTS);
-// Temalar: her tema hem koyu hem aydınlık modda çalışır. c = [zemin, yüzey, yüzey 2, yazı, soluk yazı, çok soluk, çizgi], a = [vurgu, vurgu üstü yazı]
+// Temalar (1.7): nötr zemin + canlı vurgu. Zemin, "Ton yoğunluğu" ayarına göre temanın rengine boyanır.
+// a = [vurgu, vurgu üstü yazı]
 const THEMES = {
-  notr: { tr: 'Nötr', en: 'Neutral', light: { c: ['#F2F2F4', '#FFFFFF', '#F7F7F9', '#16161A', '#5E5E68', '#9696A0', '#DEDEE4'], a: ['#2B2B33', '#FFFFFF'] }, dark: { c: ['#0F0F11', '#1A1A1E', '#222227', '#EDEDF0', '#A3A3AD', '#6E6E78', '#2C2C33'], a: ['#EDEDF0', '#0F0F11'] } },
-  nane: { tr: 'Nane', en: 'Mint', light: { c: ['#E6F4EC', '#FFFFFF', '#F1FAF5', '#13261B', '#4A6B58', '#86A694', '#C6E3D2'], a: ['#1F9D63', '#FFFFFF'] }, dark: { c: ['#0C1712', '#14241C', '#1A2E24', '#E3F4EA', '#9CC6AF', '#6A917C', '#264036'], a: ['#7EE0B0', '#0A1A12'] } },
-  lavanta: { tr: 'Lavanta', en: 'Lavender', light: { c: ['#EFEBFB', '#FFFFFF', '#F6F3FE', '#211A3A', '#5F5786', '#9A92BB', '#D9D0F3'], a: ['#6E4BF2', '#FFFFFF'] }, dark: { c: ['#13101E', '#1D1830', '#241E3B', '#ECE7FD', '#ADA3D6', '#7A70A6', '#342B52'], a: ['#BBA7FF', '#160F2C'] } },
-  seftali: { tr: 'Şeftali', en: 'Peach', light: { c: ['#FFEFE6', '#FFFFFF', '#FFF6F1', '#3A1E12', '#8A5C49', '#BE9381', '#F5D2C1'], a: ['#E2602F', '#FFFFFF'] }, dark: { c: ['#1B120E', '#281A14', '#32221A', '#FDEBE2', '#D8AA95', '#A07766', '#43302A'], a: ['#FFAD88', '#2A1208'] } },
-  gokyuzu: { tr: 'Gökyüzü', en: 'Sky', light: { c: ['#E7F1FC', '#FFFFFF', '#F1F7FE', '#11233A', '#4A6685', '#879EB8', '#C7DBF2'], a: ['#2A7DE9', '#FFFFFF'] }, dark: { c: ['#0C1521', '#132132', '#192A3F', '#E5EFFB', '#9EB9D6', '#6A85A3', '#253A53'], a: ['#8FC6FF', '#08162A'] } },
-  gul: { tr: 'Gül', en: 'Rose', light: { c: ['#FCECF2', '#FFFFFF', '#FEF5F8', '#3A1521', '#885468', '#BB8A9D', '#F1CCDA'], a: ['#D8436F', '#FFFFFF'] }, dark: { c: ['#1B0F15', '#28161F', '#331C28', '#FCE7EF', '#D7A3B6', '#A07284', '#452A38'], a: ['#FF9EBE', '#2C0A18'] } },
-  vanilya: { tr: 'Vanilya', en: 'Vanilla', light: { c: ['#FFF6DB', '#FFFFFF', '#FFFAEA', '#2D250E', '#77693B', '#ABA073', '#F0E2AE'], a: ['#946E00', '#FFFFFF'] }, dark: { c: ['#19160C', '#252113', '#2F2A19', '#FBF3D8', '#D1C399', '#998D64', '#403924'], a: ['#FFD866', '#241B00'] } },
-  orman: { tr: 'Orman', en: 'Forest', light: { c: ['#EAF2EC', '#FFFFFF', '#F3F8F4', '#15251A', '#4C6454', '#879B8D', '#CFDDD3'], a: ['#2C7A4B', '#FFFFFF'] }, dark: { c: ['#0F1712', '#17241C', '#1E2E24', '#E3ECE5', '#9DB3A4', '#6C8574', '#2B3D31'], a: ['#7CC18F', '#0B140E'] } },
-  ahsap: { tr: 'Ahşap', en: 'Woody', light: { c: ['#F4ECE2', '#FFFFFF', '#FAF5EF', '#2B2017', '#755F4B', '#A88F78', '#E3D3C0'], a: ['#9A6436', '#FFFFFF'] }, dark: { c: ['#1A1410', '#261D16', '#30251C', '#EFE4D8', '#B9A48F', '#88735F', '#3F3126'], a: ['#D9A774', '#1A1108'] } }
+  notr: { tr: 'Nötr', en: 'Neutral', tint: false, light: { a: ['#18181B', '#FFFFFF'] }, dark: { a: ['#F4F4F5', '#0D0D0F'] } },
+  nane: { tr: 'Nane', en: 'Mint', light: { a: ['#059669', '#FFFFFF'] }, dark: { a: ['#34D399', '#03160E'] } },
+  lavanta: { tr: 'Lavanta', en: 'Lavender', light: { a: ['#7C3AED', '#FFFFFF'] }, dark: { a: ['#A78BFA', '#140A2E'] } },
+  seftali: { tr: 'Şeftali', en: 'Peach', light: { a: ['#EA580C', '#FFFFFF'] }, dark: { a: ['#FB923C', '#2A1002'] } },
+  gokyuzu: { tr: 'Gökyüzü', en: 'Sky', light: { a: ['#2563EB', '#FFFFFF'] }, dark: { a: ['#60A5FA', '#06142A'] } },
+  gul: { tr: 'Gül', en: 'Rose', light: { a: ['#E11D48', '#FFFFFF'] }, dark: { a: ['#FB7185', '#2A0610'] } },
+  vanilya: { tr: 'Vanilya', en: 'Vanilla', light: { a: ['#A16207', '#FFFFFF'] }, dark: { a: ['#FACC15', '#1C1500'] } },
+  orman: { tr: 'Orman', en: 'Forest', light: { a: ['#15803D', '#FFFFFF'] }, dark: { a: ['#4ADE80', '#04180B'] } },
+  ahsap: { tr: 'Ahşap', en: 'Woody', light: { a: ['#92400E', '#FFFFFF'] }, dark: { a: ['#D97706', '#1C0E02'] } }
 };
+// Nötr taban renkler: [zemin, yüzey, yüzey 2, yazı, soluk yazı, çok soluk, çizgi]
+const BASE = {
+  light: ['#F3F3F6', '#FFFFFF', '#F0F0F3', '#111114', '#55555F', '#8A8A94', '#DCDCE2'],
+  dark: ['#0D0D0F', '#17171A', '#1F1F23', '#F2F2F5', '#A6A6B0', '#70707A', '#2A2A30']
+};
+// Ton yoğunluğu: her alanın temanın rengine ne kadar boyanacağı
+const TONES = { sade: ['Sade', 0], net: ['Net', 1], canli: ['Canlı', 2] };
+const TONE_MIX = {
+  light: [[0, 0, 0, 0, 0, 0, 0], [0.08, 0, 0.06, 0.04, 0.14, 0.14, 0.16], [0.16, 0.035, 0.12, 0.08, 0.24, 0.24, 0.28]],
+  dark: [[0, 0, 0, 0, 0, 0, 0], [0.06, 0.07, 0.09, 0.03, 0.14, 0.14, 0.15], [0.12, 0.13, 0.16, 0.06, 0.24, 0.24, 0.26]]
+};
+const HEAD_MIX = [5, 10, 16];
+function mixHex(a, b, t) {
+  const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16);
+  const ch = sh => Math.round((x >> sh & 255) * (1 - t) + (y >> sh & 255) * t);
+  return '#' + [16, 8, 0].map(sh => ch(sh).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+function themePalette(id, mode, tone) {
+  const t = THEMES[id] || THEMES.notr; const lvl = (TONES[tone] || TONES.net)[1];
+  const mix = TONE_MIX[mode][t.tint === false ? 0 : lvl];
+  return { c: BASE[mode].map((h, i) => mixHex(h, t[mode].a[0], mix[i])), a: t[mode].a };
+}
 const OLD_THEME_MAP = { gece: 'notr', grafit: 'notr', kagit: 'notr', beyaz: 'notr', orman: 'orman', ahsap: 'ahsap', kum: 'ahsap', okyanus: 'gokyuzu', gokyuzu: 'gokyuzu', sarap: 'gul', nane: 'nane', lavanta: 'lavanta' };
 const ACCENT_NAMES = { theme: 'Temanın rengi', mono: 'Mono', petrol: 'Petrol', turkuaz: 'Turkuaz', mavi: 'Mavi', yesil: 'Yeşil', turuncu: 'Turuncu', mercan: 'Mercan', bordo: 'Bordo', mor: 'Mor' };
 const ACCENTS = {
   theme: null, mono: null,
-  petrol: { dark: ['#5EAECB', '#0F171D'], light: ['#1B6683', '#FFFFFF'] },
-  turkuaz: { dark: ['#3CC4B6', '#0B1A1C'], light: ['#00796F', '#FFFFFF'] },
-  mavi: { dark: ['#6BA8E8', '#0B1622'], light: ['#2160A8', '#FFFFFF'] },
-  yesil: { dark: ['#73C28A', '#0C1A10'], light: ['#2E6B3F', '#FFFFFF'] },
-  turuncu: { dark: ['#E6A452', '#1E1406'], light: ['#A85A08', '#FFFFFF'] },
-  mercan: { dark: ['#F09A80', '#1E0F0A'], light: ['#B4492F', '#FFFFFF'] },
-  bordo: { dark: ['#E58A9A', '#1E0C10'], light: ['#8E2A3B', '#FFFFFF'] },
-  mor: { dark: ['#B39AE6', '#160F24'], light: ['#6B3FA0', '#FFFFFF'] }
+  petrol: { dark: ['#22B8CF', '#04161A'], light: ['#0E7490', '#FFFFFF'] },
+  turkuaz: { dark: ['#2DD4BF', '#04201C'], light: ['#0F766E', '#FFFFFF'] },
+  mavi: { dark: ['#60A5FA', '#06142A'], light: ['#2563EB', '#FFFFFF'] },
+  yesil: { dark: ['#4ADE80', '#04180B'], light: ['#16A34A', '#FFFFFF'] },
+  turuncu: { dark: ['#FB923C', '#2A1002'], light: ['#EA580C', '#FFFFFF'] },
+  mercan: { dark: ['#FB7185', '#2A0610'], light: ['#E11D48', '#FFFFFF'] },
+  bordo: { dark: ['#F87171', '#2A0808'], light: ['#B91C1C', '#FFFFFF'] },
+  mor: { dark: ['#C084FC', '#1E0838'], light: ['#9333EA', '#FFFFFF'] }
 };
 // Üç yazı tipi, hepsi IBM Plex'e yakın; Carlito, Calibri'nin ücretsiz birebir eşdeğeridir
 const FONTS = {
@@ -177,7 +201,8 @@ const TITLES = {
   goals: { tr: ['Hedefler', 'Zirve listesi'], en: ['Goals', 'Summit list'] },
   notes: { tr: ['Notlar', 'Aklımda kalsın'], en: ['Notes', 'Mental sticky notes'] },
   pinned: { tr: ['Sabitlenen notlar', 'Buzdolabı kapağı'], en: ['Pinned notes', 'Fridge door'] },
-  routines: { tr: ['Rutinler', 'Vakti geldi'], en: ['Routines', 'It’s about time'] }
+  routines: { tr: ['Rutinler', 'Vakti geldi'], en: ['Routines', 'It’s about time'] },
+  tools: { tr: ['Araçlar', 'Alet çantası'], en: ['Tools', 'Toolbox'] }
 };
 // 1.5'e kadar kullanılan ironik isimler: ironik stildeki kullanıcıda gördüğü isimler aynen korunur
 const OLD_IRONIC = {
@@ -197,7 +222,8 @@ const TITLE_SUGGEST = {
   habits: { tr: ['Zinciri kırma', 'Her gün biraz', 'Mini zaferler', 'Seri katil'], en: ['Don’t break the chain', 'A little every day', 'Tiny wins', 'Streak hunter'] },
   goals: { tr: ['Zirve listesi', 'Uzun vade', 'Hedef tahtası', 'Yapacağım, göreceksin'], en: ['Summit list', 'The long game', 'Target board', 'Watch me'] },
   notes: { tr: ['Aklımda kalsın', 'Defter', 'Beyin fırtınası', 'Not kâğıtları'], en: ['Mental sticky notes', 'Notebook', 'Brainstorm', 'Paper scraps'] },
-  pinned: { tr: ['Buzdolabı kapağı', 'Masada dursun', 'Baş köşe', 'Önemli olanlar'], en: ['Fridge door', 'On the desk', 'Place of honor', 'The important ones'] }
+  pinned: { tr: ['Buzdolabı kapağı', 'Masada dursun', 'Baş köşe', 'Önemli olanlar'], en: ['Fridge door', 'On the desk', 'Place of honor', 'The important ones'] },
+  tools: { tr: ['Alet çantası', 'İsviçre çakısı', 'Oyun parkı', 'Mola köşesi'], en: ['Toolbox', 'Swiss army knife', 'Playground', 'Break corner'] }
 };
 const isEn = () => settings().lang === 'en';
 function T(key) { const st = settings(); const c = (st.titles || {})[key]; if (c) return c; if (st.titleStyle === 'ironic' && st.ironicKeep && st.ironicKeep[key]) return st.ironicKeep[key]; const t = TITLES[key]; if (!t) return key; return t[isEn() ? 'en' : 'tr'][st.titleStyle === 'ironic' ? 1 : 0]; }
@@ -224,6 +250,7 @@ function settings() {
   if (!THEMES[s.themeId]) s.themeId = 'notr';
   if (![0.8, 0.9, 1].includes(Number(s.fs))) s.fs = 1;
   if (!FONTS[s.font]) s.font = 'plex';
+  if (!TONES[s.tone]) s.tone = 'net';
   if (!(s.accent in ACCENTS)) s.accent = 'theme';
   ['today', 'plan'].forEach(key => DEFAULT_SETTINGS[key].forEach(d => { if (!s[key].find(x => x.k === d.k)) s[key].push(clone(d)); }));
   s.today = s.today.filter(x => !String(x.k).startsWith('c:') || (s.custom || []).some(m => 'c:' + m.id === x.k));
@@ -236,7 +263,7 @@ function currentTheme() {
   if (t === 'system') return window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   return t === 'light' ? 'light' : 'dark';
 }
-function currentPalette() { const st = settings(); return (THEMES[st.themeId] || THEMES.notr)[currentTheme()]; }
+function currentPalette() { const st = settings(); return themePalette(st.themeId, currentTheme(), st.tone); }
 function currentAccent() {
   const st = settings(); const mode = currentTheme(); const p = currentPalette();
   if (st.accent === 'mono') return [p.c[3], p.c[0]];
@@ -249,7 +276,8 @@ function applyTheme() {
   root.dataset.theme = mode;
   ['--bg', '--surface', '--surface2', '--text', '--muted', '--faint', '--line'].forEach((k, i) => css(k, p.c[i]));
   const a = currentAccent();
-  css('--accent', a[0]); css('--accent-ink', a[1]); css('--accent-soft', hexA(a[0], mode === 'dark' ? 0.14 : 0.10));
+  css('--accent', a[0]); css('--accent-ink', a[1]); css('--accent-soft', hexA(a[0], mode === 'dark' ? 0.16 : 0.12));
+  css('--tint', p.a[0]); css('--head-mix', (THEMES[st.themeId] && THEMES[st.themeId].tint === false ? HEAD_MIX[0] : HEAD_MIX[(TONES[st.tone] || TONES.net)[1]]) + '%');
   css('--font', (FONTS[st.font] || FONTS.plex)[1]);
   css('--fs', String(Math.max(0.8, Math.min(1, Number(st.fs) || 1))));
   css('--pad', (DENSITY[st.density] || DENSITY.normal)[1] + 'px');
@@ -660,7 +688,7 @@ const EN = {
   'görev': 'tasks', 'etkinlik': 'events', 'alışkanlık': 'habits',
   'Bugün ekranı boş. Ayarlar’dan kart ekleyebilirsin.': 'Your Today screen is empty. Add cards in Settings.',
   'Bugün için görev yok.': 'No tasks for today.', 'Bugün takvimin boş.': 'Your calendar is clear today.', 'Bugün için alışkanlık yok.': 'No habits for today.',
-  'Açık': 'Open', 'Yaklaşan': 'Upcoming', 'Biten': 'Done', 'Hızlı görev ekle…': 'Quick add a task…', 'Bugün için görev ekle…': 'Add a task for today…',
+  'Açık': 'Light', 'Bekleyen': 'Open', 'Yaklaşan': 'Upcoming', 'Biten': 'Done', 'Hızlı görev ekle…': 'Quick add a task…', 'Bugün için görev ekle…': 'Add a task for today…',
   'Gecikmiş': 'Overdue', 'Bu hafta': 'This week', 'Daha sonra': 'Later', 'Tarihsiz': 'No date', 'Bugün ve gecikmiş': 'Today & overdue', 'Tamamlanan': 'Completed',
   'Açık görev yok. Yukarıdan hızlıca ekleyebilirsin.': 'No open tasks. Add one above.', 'Yaklaşan tarihli görev yok.': 'No upcoming tasks.', 'Henüz tamamlanan görev yok.': 'No completed tasks yet.',
   'Yeni görev': 'New task', 'Görevi düzenle': 'Edit task', 'Ne yapılacak?': 'What needs doing?', 'Not ekle (isteğe bağlı)': 'Add a note (optional)',
@@ -834,7 +862,8 @@ const fval = name => { const el = $('#sheetRoot [name="' + name + '"]'); return 
 const TABS = [
   { k: 'today', icon: 'today' },
   { k: 'plan', icon: 'plan' },
-  { k: 'info', icon: 'info' }
+  { k: 'info', icon: 'info' },
+  { k: 'tools', icon: 'tools' }
 ];
 function planSubs() {
   return settings().plan.filter(m => m.on).map(m => ({ k: m.k, label: TL(m.k) }))
@@ -844,8 +873,8 @@ function infoSubs() {
   const a = settings().notes ? [{ k: 'notes', label: TL('notes') }] : [];
   return a.concat(customMods().filter(m => m.home === 'info').map(m => ({ k: 'c:' + m.id, label: m.name })));
 }
-function visibleTabs() { return TABS.filter(t => (t.k !== 'plan' || planSubs().length) && (t.k !== 'info' || infoSubs().length)); }
-const TAB_KEYS = ['today', 'plan', 'info', 'settings'];
+function visibleTabs() { return TABS.filter(t => (t.k !== 'plan' || planSubs().length) && (t.k !== 'info' || infoSubs().length) && (t.k !== 'tools' || settings().tools !== false)); }
+const TAB_KEYS = ['today', 'plan', 'info', 'tools', 'settings'];
 const subTitle = k => k && k.startsWith('c:') ? ((cmod(k.slice(2)) || {}).name || '') : T(k);
 function render() {
   applyTheme();
@@ -856,6 +885,7 @@ function render() {
   if (S.tab === 'today') { title = T('today'); body = viewToday(); }
   else if (S.tab === 'plan') { body = viewPlan(); title = subTitle(S.planSub); if (S.planSub === 'calendar') actions = '<button class="link" data-act="cal-today">Bugün</button>'; }
   else if (S.tab === 'info') { body = viewInfo(); title = subTitle(S.infoSub); }
+  else if (S.tab === 'tools') { title = T('tools'); body = typeof viewTools === 'function' ? viewTools() : ''; }
   else { title = T('settings'); body = viewSettings(); }
   if ((Drive.on() || Cal.on()) && S.tab !== 'settings') actions += '<button id="syncBtn" class="icon-btn ' + (Drive.status === 'syncing' ? 'spin ' : '') + (Drive.status === 'needauth' || Drive.status === 'error' ? 'warn' : '') + '" data-act="sync-now" aria-label="Eşitle">' + icon('sync') + '</button>';
   if (S.tab !== 'settings') { const n = computeAlerts().length; actions += '<button class="icon-btn bell ' + (n ? 'has' : '') + '" data-act="alerts" aria-label="Uyarılar">' + icon('bell') + (n ? '<b class="badge">' + (n > 9 ? '9+' : n) + '</b>' : '') + '</button>'; }
@@ -865,7 +895,7 @@ function render() {
   $('#pageTitle').textContent = title;
   $('#topActions').innerHTML = actions;
   $('#view').innerHTML = body;
-  $('#fab').hidden = S.tab === 'settings';
+  $('#fab').hidden = S.tab === 'settings' || S.tab === 'tools';
   translateTree(document.body);
 }
 
@@ -1093,7 +1123,7 @@ function viewTasks() {
   const f = S.taskFilter, t0 = today();
   let tasks = list('task');
   if (S.taskTag && tagName(S.taskTag)) tasks = tasks.filter(t => (t.tags || []).includes(S.taskTag)); else S.taskTag = null;
-  const filters = [['open', 'Açık'], ['today', 'Bugün'], ['upcoming', 'Yaklaşan'], ['done', 'Biten']];
+  const filters = [['open', 'Bekleyen'], ['today', 'Bugün'], ['upcoming', 'Yaklaşan'], ['done', 'Biten']];
   let h = '<div class="chips filter-row">' + filters.map(x => '<button class="chip ' + (f === x[0] ? 'on' : '') + '" data-act="task-filter" data-k="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>';
   const tags = tagsOf('task');
   if (tags.length) h += '<div class="chips tag-row">' + tags.map(tg => '<button class="chip sm ' + (S.taskTag === tg.id ? 'on' : '') + '" data-act="task-tagf" data-id="' + tg.id + '">#' + esc(tg.name) + '</button>').join('') + '</div>';
@@ -1636,6 +1666,7 @@ function viewSettings() {
     (customMods().length ? customMods().map(m => '<div class="set-row cmod-row"><div class="grow"><input class="input slim" data-cmod-name="' + m.id + '" value="' + esc(m.name) + '" autocomplete="off"><div class="sub"><span>' + CTYPES[m.type][0] + '</span> · <span>' + (m.home === 'info' ? 'Bilgi sekmesinde' : 'Planla sekmesinde') + '</span></div></div><button class="icon-btn" data-act="cmod-home" data-id="' + m.id + '" aria-label="Sekmeyi değiştir">' + icon(m.home === 'info' ? 'info' : 'plan') + '</button><button class="icon-btn" data-act="cmod-del" data-id="' + m.id + '" aria-label="Sil">' + icon('trash') + '</button></div>').join('') : '<p class="muted sm" style="margin:4px 0 8px">Henüz yok. Liste, not defteri, sayaç ya da kayıt defteri olarak kendi bölümünü ekle.</p>') +
     '<button class="btn block" data-act="cmod-new">' + icon('plus') + ' Yeni bölüm ekle</button>';
   const modules = '<div class="set-sub">Planla</div>' + orderRows('plan', st.plan, MOD_LABELS) +
+    '<div class="set-sub">Araçlar</div><div class="set-row"><div class="grow"><div>Araçlar ve oyunlar sekmesi</div><div class="sub">Hesap makinesi, zamanlayıcı, odak sayacı, oyunlar…</div></div><button class="switch ' + (st.tools !== false ? 'on' : '') + '" data-act="tools-toggle" aria-label="Aç/kapat"></button></div>' +
     '<div class="set-sub">Bilgi</div><div class="set-row"><div class="grow">Notlar ve kalem notları</div><button class="switch ' + (st.notes ? 'on' : '') + '" data-act="notes-toggle" aria-label="Aç/kapat"></button></div>' +
     '<div class="set-row"><div class="grow"><div>Yeni kalem notu kâğıdı</div></div><div class="seg" style="max-width:240px">' + PAPERS.map(p => '<button class="' + (st.paper === p ? 'on' : '') + '" data-act="set-paper" data-k="' + p + '">' + { blank: 'Boş', lines: 'Çizgili', grid: 'Kareli' }[p] + '</button>').join('') + '</div></div>' +
     '<div class="set-sub">Etiketler</div><div class="set-row click" data-act="manage-tags" data-scope="task">' + icon('tag') + '<div class="grow">Görev etiketleri</div><span class="muted sm">' + tagsOf('task').length + '</span>' + icon('right') + '</div><div class="set-row click" data-act="manage-tags" data-scope="note">' + icon('tag') + '<div class="grow">Not etiketleri</div><span class="muted sm">' + tagsOf('note').length + '</span>' + icon('right') + '</div>';
@@ -1661,12 +1692,13 @@ function viewSettings() {
 }
 function lookBody(st) {
   const opt = (k, v, on, inner, label) => '<button class="opt ' + (on ? 'on' : '') + '" data-act="look" data-k="' + k + '" data-v="' + v + '">' + inner + '<span>' + label + '</span></button>';
-  const themeOpts = () => Object.keys(THEMES).map(id => { const t = THEMES[id]; return opt('themeId', id, st.themeId === id, '<span class="tsw"><i style="background:' + t.light.c[0] + '"></i><i style="background:' + t.light.a[0] + '"></i><i style="background:' + t.dark.c[0] + '"></i><i style="background:' + t.dark.a[0] + '"></i></span>', '<span class="u">' + (isEn() ? t.en : t.tr) + '</span>'); }).join('');
+  const themeOpts = () => Object.keys(THEMES).map(id => { const t = THEMES[id], L = themePalette(id, 'light', st.tone), D = themePalette(id, 'dark', st.tone); return opt('themeId', id, st.themeId === id, '<span class="tsw"><i style="background:' + L.c[0] + '"></i><i style="background:' + L.a[0] + '"></i><i style="background:' + D.c[0] + '"></i><i style="background:' + D.a[0] + '"></i></span>', '<span class="u">' + (isEn() ? t.en : t.tr) + '</span>'); }).join('');
   const segRow = (k, map, cur) => '<div class="seg">' + Object.keys(map).map(v => '<button class="' + (cur === v ? 'on' : '') + '" data-act="look" data-k="' + k + '" data-v="' + v + '">' + (Array.isArray(map[v]) ? map[v][0] : map[v]) + '</button>').join('') + '</div>';
   const mode = currentTheme(); const p = currentPalette();
   const cardPrev = { plain: '<span class="cprev"><i style="background:var(--line);height:1px"></i><i style="background:transparent"></i><i style="background:var(--line);height:1px"></i></span>', outline: '<span class="cprev"><i style="border:1px solid var(--line);height:20px;border-radius:4px"></i></span>', filled: '<span class="cprev"><i style="background:var(--surface2);border:1px solid var(--line);height:20px;border-radius:4px"></i></span>' };
-  return '<div class="set-sub">Mod</div><div class="pad-x">' + segRow('theme', { dark: 'Koyu', light: 'Aydınlık', system: 'Sistem' }, st.theme) + '</div>' +
-    '<div class="set-sub">Tema</div><p class="muted sm" style="margin:0 0 6px">Her tema hem koyu hem aydınlık modda çalışır.</p><div class="opt-grid">' + themeOpts() + '</div>' +
+  return '<div class="set-sub">Mod</div><div class="pad-x">' + segRow('theme', { dark: 'Koyu', light: 'Açık', system: 'Sistem' }, st.theme) + '</div>' +
+    '<div class="set-sub">Tema</div><p class="muted sm" style="margin:0 0 6px">Her tema hem koyu hem açık modda çalışır.</p><div class="opt-grid">' + themeOpts() + '</div>' +
+    '<div class="set-sub">Ton yoğunluğu</div><p class="muted sm" style="margin:0 0 6px">Zeminin ve alanların temanın rengine ne kadar boyanacağı.</p><div class="pad-x">' + segRow('tone', TONES, st.tone) + '</div>' +
     '<div class="set-sub">Vurgu rengi</div><div class="accents">' + Object.keys(ACCENTS).map(k => '<button class="accent-dot ' + (k === 'mono' ? 'mono ' : '') + (k === 'theme' ? 'themeacc ' : '') + (st.accent === k ? 'on' : '') + '" style="background:' + (k === 'theme' ? p.a[0] : ACCENTS[k] ? ACCENTS[k][mode][0] : 'var(--text)') + '" data-act="look" data-k="accent" data-v="' + k + '" aria-label="' + ACCENT_NAMES[k] + '" title="' + ACCENT_NAMES[k] + '"></button>').join('') + '</div>' +
     '<div class="set-sub">Alanlar</div><div class="opt-grid">' + Object.keys(CARD_STYLES).map(k => opt('cards', k, st.cards === k, cardPrev[k], CARD_STYLES[k])).join('') + '</div>' +
     '<div class="set-sub">Yazı tipi</div><div class="opt-grid">' + Object.keys(FONTS).map(k => opt('font', k, st.font === k, '<span class="fprev" style="font-family:' + FONTS[k][1].replace(/"/g, '&quot;') + '">Ağ</span>', '<span class="u">' + FONTS[k][0] + '</span>')).join('') + '</div>' +
@@ -1847,6 +1879,7 @@ const ACTIONS = {
   'list-toggle': el => { const arr = settings()[el.dataset.list]; const m = arr[+el.dataset.i]; m.on = !m.on; saveSettings(); },
   'list-move': el => { const arr = settings()[el.dataset.list]; const i = +el.dataset.i, j = i + (+el.dataset.dir); if (j < 0 || j >= arr.length) return; const t = arr[i]; arr[i] = arr[j]; arr[j] = t; saveSettings(); },
   'notes-toggle': () => { const st = settings(); st.notes = !st.notes; saveSettings(); },
+  'tools-toggle': () => { const st = settings(); st.tools = st.tools === false; saveSettings(); },
   'manage-tags': el => manageTags(el.dataset.scope),
   'tag-delete': async el => { const t = S.items.get(el.dataset.id); if (!t || !ask('“' + t.name + '” etiketi silinsin mi? (Notlar ve görevler silinmez)')) return; await remove(t, { silent: true }); manageTags(el.dataset.scope); },
   'sync-now': () => { if (!navigator.onLine) return toast('İnternet yok, bağlantı gelince eşitlenecek'); gSync(true); },
