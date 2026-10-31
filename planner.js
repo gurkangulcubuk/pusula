@@ -21,7 +21,7 @@ function dayItems(d) {
   if (Cal.on()) Cal.forDate(d).forEach(e => out.push({ k: 'gev', time: e.allDay ? '' : e.start, end: e.allDay ? '' : e.end, title: e.title, color: e.color, act: 'gev-edit', attr: 'data-gid="' + esc(e.gid) + '"', remind: !!((e.remind && e.remind.length) || e.remindDefault) }));
   eventsOn(d).forEach(e => out.push({ k: 'ev', time: e.allDay ? '' : (e.start || ''), end: e.allDay ? '' : (e.end || ''), title: e.title, color: e.color, act: 'edit-event', attr: 'data-id="' + e.id + '" data-d="' + d + '"', rep: !!e.rec, remind: !!(e.remind || []).length }));
   list('routine').forEach(r => { if (routineOn(r, d)) out.push({ k: 'rt', time: r.time || '', title: r.title, act: 'rt-edit', attr: 'data-id="' + r.id + '"', rep: false, remind: !!((r.remind || []).length && r.time) }); });
-  if (planOn('tasks')) list('task').forEach(t => { if (t.due === d) out.push({ k: 'task', time: t.time || '', title: t.title, done: t.done, act: 'edit-task', attr: 'data-id="' + t.id + '"', remind: !!((t.remind || []).length && t.time) }); });
+  if (planOn('tasks')) list('task').forEach(t => { if (t.due === d || taskOn(t, d)) out.push({ k: 'task', time: t.time || '', title: t.title, done: t.done, act: 'edit-task', attr: 'data-id="' + t.id + '"', remind: !!((t.remind || []).length && t.time) }); });
   return out.sort((a, b) => (a.time ? 1 : 0) - (b.time ? 1 : 0) || (a.time || '').localeCompare(b.time || ''));
 }
 const KIND_ICON = { gev: 'event', ev: 'event', rt: 'repeat', task: 'task' };

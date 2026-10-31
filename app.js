@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.12.0';
+const VERSION = '1.13.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -330,6 +330,15 @@ const pickedTags = root => $$('.tag-picker .chip.on', root).map(b => b.dataset.t
 /* ===================== Tarih mantığı ===================== */
 const REPEATS = [['none', 'Tekrar yok'], ['daily', 'Her gün'], ['weekdays', 'Hafta içi her gün'], ['weekly', 'Her hafta'], ['monthly', 'Her ay'], ['yearly', 'Her yıl']];
 const repeatLabel = k => (REPEATS.find(r => r[0] === k) || REPEATS[0])[1];
+// Görev tekrarı (1.13): t.rec (etkinliklerle aynı biçim). Eski t.repeat değerleri buraya çevrilir.
+const LEGACY_REP = { daily: { unit: 'day' }, weekdays: { unit: 'week', wdays: [0, 1, 2, 3, 4] }, weekly: { unit: 'week' }, monthly: { unit: 'month' }, yearly: { unit: 'year' } };
+function taskRec(t) { if (t.rec) return t.rec; const l = LEGACY_REP[t.repeat]; return l ? Object.assign({ mode: 'cal', every: 1, wdays: [], mday: null, until: '' }, l) : null; }
+function taskOn(t, d) {
+  if (!t.due || t.done || d < t.due) return false; if (d === t.due) return true;
+  const r = taskRec(t); if (!r || (r.until && d > r.until)) return false;
+  let x = t.due; for (let i = 0; i < 800; i++) { x = nextOcc(x, r); if (x === d) return true; if (x > d) return false; }
+  return false;
+}
 function nextDate(s, rep) {
   const d = parseYmd(s);
   if (rep === 'daily') d.setDate(d.getDate() + 1);
@@ -387,11 +396,11 @@ const Drive = {
       if (!this.gisReady()) { this.loadGis().catch(() => {}); return rej(new Error('Google girişi hazırlanıyor, birkaç saniye sonra tekrar dokun')); }
       const scope = gScopes(extra);
       const tc = google.accounts.oauth2.initTokenClient({
-        client_id: (this.cfg && this.cfg.clientId) || DRIVE_CLIENT_ID, scope, include_granted_scopes: true,
+        client_id: (this.cfg && this.cfg.clientId) || DRIVE_CLIENT_ID, scope, include_granted_scopes: true, hint: lsGet('pusula.gemail', '') || undefined,
         callback: r => {
           if (r.error) return rej(new Error(r.error_description || r.error));
           this.token = r.access_token; this.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000; this.granted = r.scope || scope; this.nagged = false;
-          lsSet('pusula.gtok', JSON.stringify({ v: this.token, exp: this.exp, s: this.granted })); res();
+          lsSet('pusula.gtok', JSON.stringify({ v: this.token, exp: this.exp, s: this.granted })); res(); setTimeout(gCaptureEmail, 500);
         },
         error_callback: e => rej(new Error(e && e.type === 'popup_closed' ? 'Google penceresi kapatıldı' : e && e.type === 'popup_failed_to_open' ? 'Google penceresi açılamadı' : 'Google girişi başarısız'))
       });
@@ -476,6 +485,28 @@ const Drive = {
     }
   }
 };
+/* Google hesabını hatırla: sonraki oturum yenilemelerinde hesap seçimi sorulmaz, pencere kendiliğinden kapanır */
+async function gCaptureEmail() {
+  if (lsGet('pusula.gemail', '')) return;
+  try {
+    let em = '';
+    if (Cal.on() && Cal.cals().length) { const p = Cal.cals().find(c => c.primary); if (p && /@/.test(p.id)) em = p.id; }
+    if (!em && Drive.tokenOk('https://www.googleapis.com/auth/gmail.modify')) { const r = await Drive.api('https://gmail.googleapis.com/gmail/v1/users/me/profile'); em = (await r.json()).emailAddress || ''; }
+    if (!em && Drive.tokenOk(GSCOPE)) { const r = await Drive.api('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)'); em = ((await r.json()).user || {}).emailAddress || ''; }
+    if (em) lsSet('pusula.gemail', em);
+  } catch (e) { /* sonra tekrar denenir */ }
+}
+/* Oturumu dokununca yenile: Google oturumu bitmiş ya da bitmek üzereyse uygulamadaki ilk dokunuşta sessizce yenilenir */
+let gAutoAt = 0;
+document.addEventListener('click', e => {
+  if (settings().gAuto === false || !navigator.onLine || Date.now() - gAutoAt < 120000) return;
+  if (!(Drive.on() || Cal.on() || (typeof Mail !== 'undefined' && Mail.on()))) return;
+  const soon = Drive.token && Drive.exp - Date.now() < 5 * 60000;
+  if (!gNeedsToken() && !soon) return;
+  const t = e.target; if (t.closest && t.closest('input,textarea,select,[data-act=sync-now],[data-act=gm-auth],[data-act=gm-connect],[data-act=cal-connect],[data-act=drive-connect],#sheetRoot .ink-wrap')) return;
+  if (!Drive.gisReady()) { Drive.loadGis().catch(() => {}); return; }
+  gAutoAt = Date.now(); gSync(true);
+}, true);
 /* Drive ve Takvim için tek eşitleme girişi. interactive=true ise dokunuşla Google oturumu yenilenir. */
 function gNeedsToken() { const need = []; if (Drive.on()) need.push(GSCOPE); if (Cal.on()) need.push(GCAL_SCOPE); if (typeof Mail !== 'undefined' && Mail.on()) need.push(Mail.scopes()[0]); return need.length > 0 && !need.every(x => Drive.tokenOk(x)); }
 async function gSync(interactive) {
@@ -554,8 +585,8 @@ const Cal = {
     await this.fetchRange(from, to);
   },
   // PUSULA rutinlerinin Google'daki kopyaları gösterilmez (rutin zaten PUSULA'da görünüyor)
-  mirrorIds() { const s = new Set(); list('routine').forEach(r => { if (r.gev && r.gev.id) s.add(r.gev.id); }); return s; },
-  isMirror(e, ids) { return ids.has(e.gid) || (e.rid && ids.has(e.rid)) || /^PUSULA rutini/.test(e.notes || ''); },
+  mirrorIds() { const s = new Set(); list('routine').concat(list('task')).forEach(r => { if (r.gev && r.gev.id) s.add(r.gev.id); }); return s; },
+  isMirror(e, ids) { return ids.has(e.gid) || (e.rid && ids.has(e.rid)) || /^PUSULA (rutini|görevi)/.test(e.notes || ''); },
   forDate(d) { const ids = this.mirrorIds(); return (this.byDate[d] || []).filter(e => !this.isMirror(e, ids)).sort((a, b) => (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0) || (a.start || '').localeCompare(b.start || '')); },
   findEvent(gid) { for (const d in this.byDate) { const e = this.byDate[d].find(x => x.gid === gid); if (e) return e; } return null; },
   body(ev) {
@@ -586,7 +617,21 @@ const Cal = {
       delete r._calPending; r.rr = 2; await save(r, { silent: true });
     } catch (e) { console.warn(e); r._calPending = 1; }
   },
-  async flushRoutines() { for (const r of list('routine')) if (r.toCal && (r._calPending || (r.gev && r.rec && r.rec.mode === 'cal' && r.rr !== 2))) await this.upsertRoutine(r); }, // rr=2: Google'da tekrarlı etkinlik olarak yazıldı
+  // Görevi takvime yaz: tarihi olan, bitmemiş görev tek etkinlik olarak durur; tamamlanınca silinir, tekrarlıysa sonraki tarihe taşınır
+  async upsertTask(t) {
+    if (!this.on()) return;
+    const want = t.toCal !== false && (t.toCal || this.cfg.tasks !== false) && t.due && !t.done && !t.deleted;
+    if (!this.ready() || !this.cfg.def) { if (want || t.gev) { t._calPending = 1; save(t, { silent: true }); } return; }
+    try {
+      if (!want) { if (t.gev && t.gev.id) { await this.del(t.gev.cal, t.gev.id); t.gev = null; } delete t._calPending; await save(t, { silent: true }); return; }
+      const ev = { title: t.title, date: t.due, allDay: !t.time, start: t.time || '', end: '', notes: 'PUSULA görevi' + (t.notes ? '\n' + t.notes : ''), remind: t.time ? (t.remind || []) : null };
+      if (t.gev && t.gev.id) { try { await this.patch(t.gev.cal, t.gev.id, ev); } catch (e) { if (e.status === 404 || e.status === 410) t.gev = null; else throw e; } }
+      if (!t.gev || !t.gev.id) { const res = await this.insert(this.cfg.def, ev); t.gev = { id: res.id, cal: this.cfg.def }; }
+      delete t._calPending; await save(t, { silent: true });
+    } catch (e) { console.warn(e); t._calPending = 1; save(t, { silent: true }); }
+  },
+  async flushRoutines() {
+    for (const t of S.items.values()) if (t.type === 'task' && t._calPending) await this.upsertTask(t); for (const r of list('routine')) if (r.toCal && (r._calPending || (r.gev && r.rec && r.rec.mode === 'cal' && r.rr !== 2))) await this.upsertRoutine(r); }, // rr=2: Google'da tekrarlı etkinlik olarak yazıldı
   async sync() {
     if (!this.ready() || this.busy) { if (this.on() && !this.ready() && navigator.onLine) this.setStatus('needauth'); return; }
     this.busy = true; this.setStatus('syncing');
@@ -622,6 +667,7 @@ function openCal() {
     body = '<div class="set-row"><div class="grow"><div>Google Takvim bağlı</div><div class="sub" id="calStatus2">' + calStatusHtml() + '</div></div></div>' +
       '<div class="set-sub">Gösterilecek takvimler</div>' + (cals.length ? cals.map(c => '<div class="set-row"><span class="cal-dot" style="background:' + esc(c.color || 'var(--accent)') + '"></span><div class="grow u">' + esc(c.name) + '</div><button class="switch ' + (c.on ? 'on' : '') + '" data-act="cal-toggle" data-id="' + esc(c.id) + '" aria-label="Aç/kapat"></button></div>').join('') : '<p class="muted sm">Takvim listesi için “Şimdi eşitle”ye dokun.</p>') +
       (Cal.writable().length ? '<label class="field"><span>Yeni etkinlikler şu takvime</span><select class="input" id="calDef">' + Cal.writable().map(c => '<option value="' + esc(c.id) + '" ' + (Cal.cfg.def === c.id ? 'selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select></label>' : '') +
+      '<div class="set-row" style="margin-top:8px"><div class="grow"><div>Görevleri takvime yaz</div><div class="sub">Yeni görevlerde varsayılan; görev eklerken ayrıca seçebilirsin</div></div><button class="switch ' + (Cal.cfg.tasks !== false ? 'on' : '') + '" data-act="cal-tasks" aria-label="Aç/kapat"></button></div>' +
       '<div class="set-row" style="margin-top:8px"><div class="grow"><div>Rutin tarihlerini takvime yaz</div><div class="sub">Rutin eklerken ayrıca seçebilirsin</div></div><button class="switch ' + (Cal.cfg.routines !== false ? 'on' : '') + '" data-act="cal-routines" aria-label="Aç/kapat"></button></div>' +
       '<button class="btn primary block" data-act="sync-now">' + icon('sync') + ' Şimdi eşitle</button><button class="btn block" data-act="cal-off">Bu cihazda bağlantıyı kes</button>';
   }
@@ -705,6 +751,9 @@ const EN = {
   'Yeni görev': 'New task', 'Görevi düzenle': 'Edit task', 'Ne yapılacak?': 'What needs doing?', 'Not ekle (isteğe bağlı)': 'Add a note (optional)',
   'Tarih': 'Date', 'Saat': 'Time', '1 hafta sonra': 'In a week', 'Öncelik': 'Priority', 'Yok': 'None', 'Düşük': 'Low', 'Orta': 'Medium', 'Yüksek': 'High',
   'Not şablonları': 'Note templates', 'Alışveriş, valiz, toplantı, günlük… aç-kapat, düzenle, kendi şablonunu ekle': 'Shopping, packing, meeting, journal… toggle, edit, add your own', 'Şablondan': 'From template', 'Liste': 'List',
+  'Hafta içi her gün': 'Every weekday', 'Görevleri takvime yaz': 'Write tasks to calendar', 'Yeni görevlerde varsayılan; görev eklerken ayrıca seçebilirsin': 'Default for new tasks; you can also choose per task',
+  'Tarihi olan görev takviminde görünür; hatırlatma uygulama kapalıyken de telefonuna gelir': 'A task with a date shows in your calendar; reminders reach your phone even when the app is closed',
+  'Google oturumunu kendiliğinden yenile': 'Renew Google session automatically', 'Oturum bitince uygulamaya ilk dokunuşta yenilenir; kısa bir Google penceresi açılıp kapanabilir': 'When the session expires it renews on your next tap; a Google window may briefly open and close',
   'Tekrar': 'Repeat', 'Tekrar yok': 'No repeat', 'Her gün': 'Every day', 'Hafta içi her gün': 'Every weekday', 'Her hafta': 'Every week', 'Her ay': 'Every month', 'Her yıl': 'Every year',
   'Etiketler': 'Tags', '+ yeni etiket': '+ new tag', 'Sil': 'Delete', 'Kaydet': 'Save', 'Kapat': 'Close', 'Tamamla': 'Complete', 'Ekle': 'Add', '+ Ekle': '+ Add',
   'Görev silindi': 'Task deleted', 'Görev tamamlandı': 'Task completed', 'Geri al': 'Undo', 'Etkinlik silindi': 'Event deleted', 'Hedef silindi': 'Goal deleted', 'Not silindi': 'Note deleted', 'Silindi': 'Deleted',
@@ -1133,7 +1182,8 @@ function taskRow(t) {
   const meta = [];
   if (t.due) meta.push('<span class="' + (over ? 'danger' : '') + '">' + relDay(t.due) + (t.time ? ' · ' + t.time : '') + '</span>');
   else if (t.time) meta.push('<span>' + t.time + '</span>');
-  if (t.repeat && t.repeat !== 'none') meta.push('<span>' + icon('repeat', 'xs') + ' ' + repeatLabel(t.repeat) + '</span>');
+  const trc = taskRec(t); if (trc) meta.push('<span>' + icon('repeat', 'xs') + ' ' + esc(recText(trc)) + (trc.until ? ' · ' + Lx('bitiş ', 'until ') + fmtShort(trc.until) : '') + '</span>');
+  if (t.gev) meta.push('<span>' + icon('event', 'xs') + '</span>');
   const tg = tagChips(t.tags); if (tg) meta.push(tg);
   if (t.notes) meta.push('<span>' + icon('note', 'xs') + '</span>');
   return '<div class="row ' + (t.done ? 'done' : '') + '" data-act="edit-task" data-id="' + t.id + '"><button class="check ' + (t.done ? 'on' : '') + ' p' + (t.priority || 0) + '" data-act="toggle-task" data-id="' + t.id + '" aria-label="Tamamla">' + icon('check') + '</button><div class="row-main"><div class="row-title">' + esc(t.title) + '</div>' + (meta.length ? '<div class="row-meta">' + meta.join('') + '</div>' : '') + '</div></div>';
@@ -1170,16 +1220,20 @@ function viewTasks() {
 }
 async function toggleTask(id) {
   const t = S.items.get(id); if (!t) return;
-  if (!t.done && t.repeat && t.repeat !== 'none') {
-    let n = nextDate(t.due || today(), t.repeat);
-    while (n <= today()) n = nextDate(n, t.repeat);
-    t.due = n; t.lastDone = Date.now();
-    await save(t); toast('Tamamlandı · sonraki: ' + relDay(n));
-    return;
+  const rc = taskRec(t);
+  if (!t.done && rc) {
+    const before = t.due; let n = nextOcc(t.due || today(), rc);
+    while (n <= today()) n = nextOcc(n, rc);
+    if (!rc.until || n <= rc.until) {
+      t.due = n; t.lastDone = Date.now();
+      await save(t); Cal.upsertTask(t);
+      toast('Tamamlandı · sonraki: ' + relDay(n), { label: 'Geri al', fn: async () => { t.due = before; await save(t); Cal.upsertTask(t); } });
+      return;
+    }
   }
   t.done = !t.done; t.doneAt = t.done ? Date.now() : null;
-  await save(t);
-  if (t.done) toast('Görev tamamlandı', { label: 'Geri al', fn: async () => { t.done = false; t.doneAt = null; await save(t); } });
+  await save(t); Cal.upsertTask(t);
+  if (t.done) toast('Görev tamamlandı', { label: 'Geri al', fn: async () => { t.done = false; t.doneAt = null; await save(t); Cal.upsertTask(t); } });
 }
 function editTask(t) {
   const isNew = !t;
@@ -1192,7 +1246,8 @@ function editTask(t) {
     '<div class="field-row"><label class="field"><span>Tarih</span><input type="date" class="input" name="due" value="' + (d.due || '') + '"></label><label class="field"><span>Saat</span><input type="time" class="input" name="time" value="' + (d.time || '') + '"></label></div>' +
     '<div class="quick-dates"><button type="button" class="chip sm" data-act="set-date" data-v="0">Bugün</button><button type="button" class="chip sm" data-act="set-date" data-v="1">Yarın</button><button type="button" class="chip sm" data-act="set-date" data-v="7">1 hafta sonra</button><button type="button" class="chip sm" data-act="set-date" data-v="">Tarihsiz</button></div>' +
     '<div class="field"><span>Öncelik</span>' + seg('priority', [[0, 'Yok'], [1, 'Düşük'], [2, 'Orta'], [3, 'Yüksek']], d.priority || 0) + '</div>' +
-    '<label class="field"><span>Tekrar</span><select class="input" name="repeat">' + REPEATS.map(r => '<option value="' + r[0] + '" ' + (d.repeat === r[0] ? 'selected' : '') + '>' + r[1] + '</option>').join('') + '</select></label>' +
+    evRecEditor(taskRec(d)) +
+    (Cal.on() ? '<div class="set-row" style="margin-top:4px"><div class="grow"><div>Google Takvim’e yaz</div><div class="sub">Tarihi olan görev takviminde görünür; hatırlatma uygulama kapalıyken de telefonuna gelir</div></div><button type="button" class="switch ' + ((d.toCal !== undefined ? d.toCal : Cal.cfg.tasks !== false) ? 'on' : '') + '" data-act="switch" data-name="taskCal" aria-label="Aç/kapat"></button></div>' : '') +
     remindEditor(d.remind) +
     '<div class="field"><span>Etiketler</span>' + tagPicker('task', d.tags) + '</div>' +
     '</div><div class="sheet-foot">' + (isNew ? '' : '<button class="btn danger-ghost" data-act="delete-task">' + icon('trash') + ' Sil</button>') + '<button class="btn primary" data-act="save-task">Kaydet</button></div>');
@@ -1202,9 +1257,10 @@ async function saveTask() {
   const d = S.draft; const title = fval('title').trim();
   if (!title) { $('#sheetRoot [name=title]').classList.add('err'); $('#sheetRoot [name=title]').focus(); return; }
   const base = S.items.get(d.id) || d;
-  Object.assign(base, { title, notes: fval('notes').trim(), due: fval('due') || null, time: fval('time') || null, priority: Number(segVal('priority') || 0), repeat: fval('repeat'), tags: pickedTags($('#sheetRoot')), remind: readRemind() });
-  if (base.repeat !== 'none' && !base.due) base.due = today();
-  closeSheet(); await save(base);
+  Object.assign(base, { title, notes: fval('notes').trim(), due: fval('due') || null, time: fval('time') || null, priority: Number(segVal('priority') || 0), repeat: 'none', rec: readEvRec(), tags: pickedTags($('#sheetRoot')), remind: readRemind() });
+  const tsw = $('#sheetRoot .switch[data-name=taskCal]'); if (tsw) base.toCal = tsw.classList.contains('on');
+  if (base.rec && !base.due) base.due = today();
+  closeSheet(); await save(base); Cal.upsertTask(base);
 }
 
 /* ----- Takvim ----- */
@@ -1231,7 +1287,7 @@ function viewCalMonth() {
   const cellsN = Math.ceil((dow(first) + dim) / 7) * 7;
   const marks = {};
   const evAll = list('event'); for (let i = 0; i < cellsN; i++) { const d = addDays(start, i); const n = evAll.filter(e => evOccurs(e, d)).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += n; } }
-  list('task').forEach(t => { if (t.due && !t.done) { marks[t.due] = marks[t.due] || { e: 0, t: 0 }; marks[t.due].t++; } });
+  const tkAll = planOn('tasks') ? list('task') : []; for (let i = 0; i < cellsN; i++) { const d = addDays(start, i); const n = tkAll.filter(t => taskOn(t, d)).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].t += n; } }
   if (Cal.on()) Object.keys(Cal.byDate).forEach(d => { const n = Cal.forDate(d).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += n; } });
   const rtAll = list('routine'); for (let i = 0; i < cellsN; i++) { const d = addDays(start, i); const n = rtAll.filter(r => routineOn(r, d)).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].t += n; } }
   let cells = '';
@@ -1241,7 +1297,7 @@ function viewCalMonth() {
   }
   const label = parseYmd(first).toLocaleDateString(TR, { month: 'long', year: 'numeric' });
   const ev = eventsOn(S.calSel).sort(eventSort);
-  const tk = planOn('tasks') ? list('task').filter(t => t.due === S.calSel).sort(taskSort) : [];
+  const tk = planOn('tasks') ? list('task').filter(t => t.due === S.calSel || taskOn(t, S.calSel)).sort(taskSort) : [];
   const gev = Cal.on() ? Cal.forDate(S.calSel) : [];
   const rts = list('routine').filter(r => routineOn(r, S.calSel));
   const agenda = '<section class="card"><div class="card-head"><div class="card-title">' + relDayLong(S.calSel) + '</div><div class="head-links"><button class="link" data-act="add-routine-day">+ Tekrarlı iş</button><button class="link" data-act="add-event">+ Etkinlik</button></div></div>' +
@@ -1374,15 +1430,16 @@ function rrule(r, allDay) {
 }
 function evRecEditor(rec) {
   const r = rec || null;
-  const preset = !r ? 'none' : ((+r.every || 1) === 1 && !(r.wdays || []).length && !r.mday ? r.unit : 'custom');
-  const opts = [['none', 'Tekrarlanmaz'], ['day', 'Her gün'], ['week', 'Her hafta'], ['month', 'Her ay'], ['year', 'Her yıl'], ['custom', 'Özel…']];
+  const wk = r && r.unit === 'week' && (+r.every || 1) === 1 && (r.wdays || []).slice().sort().join() === '0,1,2,3,4';
+  const preset = !r ? 'none' : wk ? 'weekdays' : ((+r.every || 1) === 1 && !(r.wdays || []).length && !r.mday ? r.unit : 'custom');
+  const opts = [['none', 'Tekrarlanmaz'], ['day', 'Her gün'], ['weekdays', 'Hafta içi her gün'], ['week', 'Her hafta'], ['month', 'Her ay'], ['year', 'Her yıl'], ['custom', 'Özel…']];
   return '<div class="ev-rec"><label class="field"><span>Tekrar</span><select class="input" name="evRep">' + opts.map(o => '<option value="' + o[0] + '" ' + (preset === o[0] ? 'selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>' +
     '<div class="ev-custom ' + (preset === 'custom' ? '' : 'hide') + '">' + recEditor(r && preset === 'custom' ? r : { mode: 'cal', every: 1, unit: 'week', wdays: [], mday: null }, true) + '</div>' +
     '<label class="field ev-until ' + (preset === 'none' ? 'hide' : '') + '"><span>Ne zamana kadar? (boş bırakırsan süresiz)</span><input type="date" class="input" name="evUntil" value="' + ((r && r.until) || '') + '"></label></div>';
 }
 function readEvRec() {
   const p = fval('evRep'); if (!p || p === 'none') return null;
-  const base = p === 'custom' ? Object.assign(readRec(), { mode: 'cal' }) : { mode: 'cal', every: 1, unit: p, wdays: [], mday: null };
+  const base = p === 'custom' ? Object.assign(readRec(), { mode: 'cal' }) : p === 'weekdays' ? { mode: 'cal', every: 1, unit: 'week', wdays: [0, 1, 2, 3, 4], mday: null } : { mode: 'cal', every: 1, unit: p, wdays: [], mday: null };
   base.until = fval('evUntil') || ''; return base;
 }
 function readRec() {
@@ -1762,7 +1819,7 @@ function viewSettings() {
     '<div class="set-row click" data-act="tpl-manage">' + icon('template') + '<div class="grow"><div>Not şablonları</div><div class="sub">Alışveriş, valiz, toplantı, günlük… aç-kapat, düzenle, kendi şablonunu ekle</div></div>' + icon('right') + '</div>' +
     '<div class="set-row"><div class="grow"><div>Yeni kalem notu kâğıdı</div></div><div class="seg" style="max-width:240px">' + PAPERS.map(p => '<button class="' + (st.paper === p ? 'on' : '') + '" data-act="set-paper" data-k="' + p + '">' + { blank: 'Boş', lines: 'Çizgili', grid: 'Kareli' }[p] + '</button>').join('') + '</div></div>' +
     '<div class="set-sub">Etiketler</div><div class="set-row click" data-act="manage-tags" data-scope="task">' + icon('tag') + '<div class="grow">Görev etiketleri</div><span class="muted sm">' + tagsOf('task').length + '</span>' + icon('right') + '</div><div class="set-row click" data-act="manage-tags" data-scope="note">' + icon('tag') + '<div class="grow">Not etiketleri</div><span class="muted sm">' + tagsOf('note').length + '</span>' + icon('right') + '</div>';
-  const data = '<div class="set-sub">Senkron</div><div class="set-row click" data-act="drive-open">' + icon('cloud') + '<div class="grow"><div>Google Drive</div><div class="sub" id="driveStatus">' + driveStatusHtml() + '</div></div>' + icon('right') + '</div>' +
+  const data = '<div class="set-row"><div class="grow"><div>Google oturumunu kendiliğinden yenile</div><div class="sub">Oturum bitince uygulamaya ilk dokunuşta yenilenir; kısa bir Google penceresi açılıp kapanabilir</div></div><button class="switch ' + (st.gAuto !== false ? 'on' : '') + '" data-act="gauto-toggle" aria-label="Aç/kapat"></button></div>' + '<div class="set-sub">Senkron</div><div class="set-row click" data-act="drive-open">' + icon('cloud') + '<div class="grow"><div>Google Drive</div><div class="sub" id="driveStatus">' + driveStatusHtml() + '</div></div>' + icon('right') + '</div>' +
     '<div class="set-row click" data-act="cal-open">' + icon('event') + '<div class="grow"><div>Google Takvim</div><div class="sub" id="calStatus">' + calStatusHtml() + '</div></div>' + icon('right') + '</div>' +
     '<div class="set-sub">Yedek</div><div class="set-row click" data-act="share-backup">' + icon('upload') + '<div class="grow"><div>Yedeği gönder / kaydet</div><div class="sub" id="lastBackup">' + lastBackupText() + '</div></div></div>' +
     '<div class="set-row click" data-act="snapshots">' + icon('clock') + '<div class="grow"><div>Otomatik yedekler</div><div class="sub">Her gün kendiliğinden alınır, son 14 gün saklanır</div></div>' + icon('right') + '</div>' +
@@ -1916,7 +1973,7 @@ const ACTIONS = {
   'toggle-task': el => toggleTask(el.dataset.id),
   'edit-task': el => { const t = S.items.get(el.dataset.id); if (t) editTask(t); },
   'save-task': () => saveTask(),
-  'delete-task': async () => { const it = S.items.get(S.draft.id); if (!it) return closeSheet(); closeSheet(); await remove(it); toast('Görev silindi', { label: 'Geri al', fn: async () => { it.deleted = false; await save(it); } }); },
+  'delete-task': async () => { const it = S.items.get(S.draft.id); if (!it) return closeSheet(); closeSheet(); await remove(it); Cal.upsertTask(it); toast('Görev silindi', { label: 'Geri al', fn: async () => { it.deleted = false; await save(it); Cal.upsertTask(it); } }); },
   'task-filter': el => { S.taskFilter = el.dataset.k; render(); },
   'task-tagf': el => { S.taskTag = S.taskTag === el.dataset.id ? null : el.dataset.id; render(); },
   // takvim
@@ -1926,6 +1983,7 @@ const ACTIONS = {
   'add-event': () => editEvent(null, S.calSel),
   'edit-event': el => { const e = S.items.get(el.dataset.id); if (e) editEvent(e, el.dataset.d); },
   'save-event': () => saveEvent(),
+  'cal-tasks': async el => { Cal.cfg.tasks = Cal.cfg.tasks === false; el.classList.toggle('on', Cal.cfg.tasks !== false); await Cal.saveCfg(); },
   'delete-event-occ': async () => { const it = S.items.get(S.draft.id); const day = S.draft._occ; if (!it || !day) return closeSheet(); it.exdates = (it.exdates || []).concat(day); closeSheet(); await save(it); toast(Lx('Bu günkü tekrar silindi', 'This occurrence was removed'), { label: tr('Geri al'), fn: async () => { it.exdates = (it.exdates || []).filter(x => x !== day); await save(it); } }); },
   'add-routine-day': () => { editRoutine(); if (S.draft) { S.draft.next = S.calSel; const n = $('#sheetRoot [name=next]'); if (n) n.value = S.calSel; } },
   'gev-edit': el => { const e = Cal.findEvent(el.dataset.gid); if (e) editEvent(null, null, e); },
@@ -1975,6 +2033,7 @@ const ACTIONS = {
   'list-toggle': el => { const arr = settings()[el.dataset.list]; const m = arr[+el.dataset.i]; m.on = !m.on; saveSettings(); },
   'list-move': el => { const arr = settings()[el.dataset.list]; const i = +el.dataset.i, j = i + (+el.dataset.dir); if (j < 0 || j >= arr.length) return; const t = arr[i]; arr[i] = arr[j]; arr[j] = t; saveSettings(); },
   'notes-toggle': () => { const st = settings(); st.notes = !st.notes; saveSettings(); },
+  'gauto-toggle': () => { const st = settings(); st.gAuto = st.gAuto === false; saveSettings(); },
   'mailtab-toggle': () => { const st = settings(); st.mailTab = st.mailTab === false; saveSettings(); },
   'tools-toggle': () => { const st = settings(); st.tools = st.tools === false; saveSettings(); },
   'manage-tags': el => manageTags(el.dataset.scope),
