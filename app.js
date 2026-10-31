@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -109,15 +109,15 @@ const S = {
   draft: null, noteEd: null, ink: null, sheetClose: null
 };
 const list = type => { const out = []; S.items.forEach(it => { if (it.type === type && !it.deleted) out.push(it); }); return out; };
-const strip = it => { const o = Object.assign({}, it); delete o._dirty; delete o._dd; return o; };
+const strip = it => { const o = Object.assign({}, it); delete o._dirty; delete o._dd; delete o._calPending; return o; };
 
 async function save(item, opts) {
   item.updated = Date.now();
   if (!item.created) item.created = item.updated;
-  item._dirty = 1; item._dd = 1;
+  item._dd = 1;
   S.items.set(item.id, item);
   try { await DB.put(item); } catch (e) { console.error(e); toast('Kaydedilemedi: depolama hatası'); }
-  Sync.schedule(); Drive.schedule();
+  Drive.schedule();
   if (!(opts && opts.silent)) render();
   return item;
 }
@@ -127,8 +127,8 @@ async function remove(item, opts) { item.deleted = true; return save(item, opts)
 const LOOK_DEFAULTS = { theme: 'dark', darkPal: 'gece', lightPal: 'kagit', accent: 'theme', cards: 'plain', font: 'plex', fs: 1, density: 'normal', tabLabels: true, titleStyle: 'classic' };
 const DEFAULT_SETTINGS = Object.assign({
   id: 'settings', type: 'settings', name: '', paper: 'lines', look: 3, lang: 'tr', titles: {}, custom: [],
-  today: [{ k: 'tasks', on: true }, { k: 'events', on: true }, { k: 'habits', on: true }, { k: 'goals', on: true }, { k: 'pinned', on: true }],
-  plan: [{ k: 'tasks', on: true }, { k: 'calendar', on: true }, { k: 'habits', on: true }],
+  today: [{ k: 'tasks', on: true }, { k: 'events', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }, { k: 'goals', on: true }, { k: 'pinned', on: true }],
+  plan: [{ k: 'tasks', on: true }, { k: 'calendar', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }],
   notes: true, updated: 0
 }, LOOK_DEFAULTS);
 // Temalar: c = [zemin, yüzey, yüzey 2, yazı, soluk yazı, çok soluk, çizgi], a = [temanın vurgu rengi, vurgu üstü yazı]
@@ -181,7 +181,22 @@ const TITLES = {
   habits: { tr: ['Alışkanlıklar', 'Disiplin kulübü'], en: ['Habits', 'Discipline club'] },
   goals: { tr: ['Hedefler', 'Büyük laflar'], en: ['Goals', 'Big talk'] },
   notes: { tr: ['Notlar', 'Unutmadan yaz'], en: ['Notes', 'Before you forget'] },
-  pinned: { tr: ['Sabitlenen notlar', 'Burada dursun'], en: ['Pinned notes', 'Keep these close'] }
+  pinned: { tr: ['Sabitlenen notlar', 'Burada dursun'], en: ['Pinned notes', 'Keep these close'] },
+  routines: { tr: ['Rutinler', 'Bakım zamanı'], en: ['Routines', 'Maintenance mode'] }
+};
+// Her başlık için ironik öneriler (dokununca seçilir; kullanıcı kendisi de yazabilir)
+const TITLE_SUGGEST = {
+  today: { tr: ['Bugünün menüsü', 'Günün raporu', 'Bugün de kurtarırız', 'Sahne senin'], en: ['Today’s menu', 'Daily briefing', 'We’ll survive today', 'Showtime'] },
+  plan: { tr: ['Plan yapan kazanır', 'Büyük plan', 'Strateji masası'], en: ['Plans & schemes', 'The master plan', 'War room'] },
+  info: { tr: ['Beyin yedeği', 'Hafıza kartı', 'İkinci beyin'], en: ['Second brain', 'Memory card', 'Brain backup'] },
+  settings: { tr: ['Kontrol odası', 'Makine dairesi', 'Kurcala'], en: ['Control room', 'Engine room', 'Tinker'] },
+  tasks: { tr: ['Kaçamayacakların', 'Ertelenenler kulübü', 'İş başa düştü', 'Yapılacaklar (kaçış yok)'], en: ['No escape', 'Procrastination club', 'It’s on you', 'To-dos (no excuses)'] },
+  calendar: { tr: ['Zaman tüneli', 'Randevu defteri', 'Takvim yaprakları'], en: ['Time tunnel', 'Appointment book', 'Days ahead'] },
+  routines: { tr: ['Bakım zamanı', 'Yine mi sen?', 'Döngüdekiler', 'Sırası geldi'], en: ['Maintenance mode', 'You again?', 'In the loop', 'It’s that time'] },
+  habits: { tr: ['Disiplin kulübü', 'Rutin sanatı', 'Küçük adımlar'], en: ['Discipline club', 'The art of routine', 'Small steps'] },
+  goals: { tr: ['Büyük laflar', 'Hayaller ve hesaplar', 'Bir gün mutlaka'], en: ['Big talk', 'Dreams & math', 'Someday for sure'] },
+  notes: { tr: ['Unutmadan yaz', 'Karalama defteri', 'Fikir çöplüğü'], en: ['Before you forget', 'Scratchpad', 'Idea dump'] },
+  pinned: { tr: ['Burada dursun', 'Göz önünde', 'Unutma bunları'], en: ['Keep these close', 'In plain sight', 'Don’t forget'] }
 };
 const isEn = () => settings().lang === 'en';
 function T(key) { const st = settings(); const c = (st.titles || {})[key]; if (c) return c; const t = TITLES[key]; if (!t) return key; return t[isEn() ? 'en' : 'tr'][st.titleStyle === 'ironic' ? 1 : 0]; }
@@ -305,16 +320,18 @@ const eventSort = (a, b) => (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0) || (a.start 
 // Veriler kullanıcının kendi Drive'ında, sadece bu uygulamanın görebildiği gizli klasörde (appDataFolder) tek dosya olarak durur.
 const GDRIVE_FILE = 'pusula-data.json';
 const GSCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar';
+function gScopes(extra) { const set = new Set(); if (Drive.on()) set.add(GSCOPE); if (typeof Cal !== 'undefined' && Cal.on()) set.add(GCAL_SCOPE); (extra || []).forEach(x => set.add(x)); if (!set.size) set.add(GSCOPE); return Array.from(set).join(' '); }
 const Drive = {
   cfg: null, token: null, exp: 0, busy: false, again: false, status: 'off', error: '', timer: null, gisP: null, nagged: false,
   async load() {
     try { this.cfg = (await DB.getMeta('drive')) || null; } catch (e) { this.cfg = null; }
-    try { const t = JSON.parse(lsGet('pusula.gtok', 'null')); if (t && t.exp > Date.now()) { this.token = t.v; this.exp = t.exp; } } catch (e) { /* yok */ }
+    try { const t = JSON.parse(lsGet('pusula.gtok', 'null')); if (t && t.exp > Date.now()) { this.token = t.v; this.exp = t.exp; this.granted = t.s || GSCOPE; } } catch (e) { /* yok */ }
     this.status = this.on() ? 'idle' : 'off';
   },
   async saveCfg() { await DB.setMeta('drive', this.cfg); },
   on() { return !!(this.cfg && this.cfg.connected && this.cfg.clientId); },
-  tokenOk() { return !!this.token && Date.now() < this.exp - 60000; },
+  tokenOk(scope) { return !!this.token && Date.now() < this.exp - 60000 && (!scope || (this.granted || '').indexOf(scope) >= 0); },
   gisReady() { return !!(window.google && google.accounts && google.accounts.oauth2); },
   loadGis() {
     if (this.gisReady()) return Promise.resolve();
@@ -327,15 +344,16 @@ const Drive = {
     return this.gisP;
   },
   // Dokunma anında, beklemeden çağrılmalı (tarayıcı açılır pencereye sadece dokunuşla izin verir)
-  requestToken(prompt) {
+  requestToken(prompt, extra) {
     return new Promise((res, rej) => {
       if (!this.gisReady()) { this.loadGis().catch(() => {}); return rej(new Error('Google girişi hazırlanıyor, birkaç saniye sonra tekrar dokun')); }
+      const scope = gScopes(extra);
       const tc = google.accounts.oauth2.initTokenClient({
-        client_id: this.cfg.clientId, scope: GSCOPE,
+        client_id: (this.cfg && this.cfg.clientId) || DRIVE_CLIENT_ID, scope, include_granted_scopes: true,
         callback: r => {
           if (r.error) return rej(new Error(r.error_description || r.error));
-          this.token = r.access_token; this.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000;
-          lsSet('pusula.gtok', JSON.stringify({ v: this.token, exp: this.exp })); res();
+          this.token = r.access_token; this.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000; this.granted = r.scope || scope; this.nagged = false;
+          lsSet('pusula.gtok', JSON.stringify({ v: this.token, exp: this.exp, s: this.granted })); res();
         },
         error_callback: e => rej(new Error(e && e.type === 'popup_closed' ? 'Google penceresi kapatıldı' : e && e.type === 'popup_failed_to_open' ? 'Google penceresi açılamadı' : 'Google girişi başarısız'))
       });
@@ -346,7 +364,12 @@ const Drive = {
     opts = opts || {};
     const r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({ Authorization: 'Bearer ' + this.token }, opts.headers || {}) }));
     if (r.status === 401) { this.token = null; this.exp = 0; lsSet('pusula.gtok', 'null'); const e = new Error('Google oturumunun süresi doldu'); e.auth = true; throw e; }
-    if (!r.ok) { let m = 'Drive hatası ' + r.status; try { const j = await r.json(); m = (j.error && j.error.message) || m; } catch (e) { /* yok */ } throw new Error(m); }
+    if (!r.ok) {
+      let m = 'Google hatası ' + r.status; try { const j = await r.json(); m = (j.error && j.error.message) || m; } catch (e) { /* yok */ }
+      if (/has not been used|is disabled|accessNotConfigured/i.test(m)) m = 'Google Cloud’da bu API kapalı. console.cloud.google.com → PUSULA → APIs & Services → Library’den açman gerekiyor.';
+      if (r.status === 403 && /insufficient/i.test(m)) { this.granted = (this.granted || '').replace(GCAL_SCOPE, ''); const e = new Error('Google izni eksik, tekrar bağlan'); e.auth = true; throw e; }
+      const e = new Error(m); e.status = r.status; throw e;
+    }
     return r;
   },
   async findFile() {
@@ -367,7 +390,7 @@ const Drive = {
     const r = await this.api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body: multi });
     return r.json();
   },
-  schedule(d) { if (!this.on() || !this.tokenOk()) return; clearTimeout(this.timer); this.timer = setTimeout(() => this.run(false), d == null ? 4000 : d); },
+  schedule(d) { if (!this.on() || !this.tokenOk(GSCOPE)) return; clearTimeout(this.timer); this.timer = setTimeout(() => this.run(false), d == null ? 4000 : d); },
   setStatus(st, err) {
     this.status = st; this.error = err || '';
     if (st === 'ok') this.lastOk = new Date();
@@ -379,12 +402,8 @@ const Drive = {
     if (!this.on()) return;
     if (this.busy) { this.again = true; return; }
     if (!navigator.onLine) { this.setStatus('offline'); return; }
-    if (!this.tokenOk()) {
-      if (!interactive) {
-        this.setStatus('needauth');
-        if (!this.nagged) { this.nagged = true; toast('Drive ile eşitlemek için dokun', { label: 'Eşitle', fn: () => this.run(true) }, 10000); }
-        return;
-      }
+    if (!this.tokenOk(GSCOPE)) {
+      if (!interactive) { this.setStatus('needauth'); return; }
       try { await this.requestToken(); } catch (e) { this.setStatus('error', e.message); toast(e.message); return; }
     }
     this.busy = true; this.setStatus('syncing');
@@ -419,6 +438,163 @@ const Drive = {
     }
   }
 };
+/* Drive ve Takvim için tek eşitleme girişi. interactive=true ise dokunuşla Google oturumu yenilenir. */
+function gNeedsToken() { const need = []; if (Drive.on()) need.push(GSCOPE); if (Cal.on()) need.push(GCAL_SCOPE); return need.length > 0 && !need.every(x => Drive.tokenOk(x)); }
+async function gSync(interactive) {
+  if (!Drive.on() && !Cal.on()) return;
+  if (!navigator.onLine) { if (Drive.on()) Drive.setStatus('offline'); return; }
+  if (gNeedsToken()) {
+    if (!interactive) {
+      if (Drive.on()) Drive.setStatus('needauth'); if (Cal.on()) Cal.setStatus('needauth');
+      if (!Drive.nagged) { Drive.nagged = true; toast('Google ile eşitlemek için dokun', { label: 'Eşitle', fn: () => gSync(true) }, 10000); }
+      return;
+    }
+    try { await Drive.requestToken(); } catch (e) { toast(e.message); return; }
+  }
+  if (Drive.on()) await Drive.run(false);
+  if (Cal.on()) await Cal.sync();
+}
+
+/* ===================== Google Takvim ===================== */
+const CAL_API = 'https://www.googleapis.com/calendar/v3';
+const Cal = {
+  cfg: null, byDate: {}, fetched: {}, busy: false, status: 'off', error: '',
+  async load() {
+    try { this.cfg = (await DB.getMeta('gcal')) || null; } catch (e) { this.cfg = null; }
+    try { const c = JSON.parse(lsGet('pusula.gcal', '{}')) || {}; this.byDate = c.byDate || {}; } catch (e) { this.byDate = {}; }
+    this.status = this.on() ? 'idle' : 'off';
+  },
+  async saveCfg() { await DB.setMeta('gcal', this.cfg); },
+  on() { return !!(this.cfg && this.cfg.connected); },
+  ready() { return this.on() && navigator.onLine && Drive.tokenOk(GCAL_SCOPE); },
+  persist() {
+    const lo = addDays(today(), -62), hi = addDays(today(), 400); const keep = {};
+    Object.keys(this.byDate).forEach(d => { if (d >= lo && d <= hi) keep[d] = this.byDate[d]; });
+    this.byDate = keep; lsSet('pusula.gcal', JSON.stringify({ byDate: keep }));
+  },
+  setStatus(st, err) { this.status = st; this.error = err || ''; const el = $('#calStatus'); if (el) el.innerHTML = calStatusHtml(); const el2 = $('#calStatus2'); if (el2) el2.innerHTML = calStatusHtml(); },
+  cals() { return (this.cfg && this.cfg.cals) || []; },
+  calById(id) { return this.cals().find(c => c.id === id); },
+  writable() { return this.cals().filter(c => c.role === 'owner' || c.role === 'writer'); },
+  async listCalendars() {
+    const r = await Drive.api(CAL_API + '/users/me/calendarList?maxResults=250');
+    const j = await r.json(); const old = this.cals();
+    this.cfg.cals = (j.items || []).map(c => { const o = old.find(x => x.id === c.id); return { id: c.id, name: c.summaryOverride || c.summary, color: c.backgroundColor || '', role: c.accessRole, primary: !!c.primary, on: o ? o.on : (c.primary || c.accessRole === 'owner') }; });
+    if (!this.cfg.def || !this.calById(this.cfg.def)) { const p = this.cfg.cals.find(c => c.primary) || this.writable()[0]; this.cfg.def = p ? p.id : ''; }
+    await this.saveCfg();
+  },
+  mapEvent(e, cal) {
+    const allDay = !!(e.start && e.start.date);
+    const date = allDay ? e.start.date : (e.start && e.start.dateTime || '').slice(0, 10);
+    const hm = x => { if (!x) return ''; const d = new Date(x); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+    const localDate = allDay ? date : ymd(new Date(e.start.dateTime));
+    return { gid: e.id, cal: cal.id, color: cal.color, calName: cal.name, title: e.summary || '(başlıksız)', date: localDate, allDay, start: allDay ? '' : hm(e.start.dateTime), end: allDay ? '' : hm(e.end && e.end.dateTime), endDate: allDay && e.end ? e.end.date : '', notes: e.description || '', loc: e.location || '' };
+  },
+  async fetchRange(from, to) {
+    const all = [];
+    for (const c of this.cals().filter(x => x.on)) {
+      let pageToken = '';
+      do {
+        const url = CAL_API + '/calendars/' + encodeURIComponent(c.id) + '/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=' + encodeURIComponent(parseYmd(from).toISOString()) + '&timeMax=' + encodeURIComponent(parseYmd(to).toISOString()) + (pageToken ? '&pageToken=' + pageToken : '');
+        const r = await Drive.api(url); const j = await r.json();
+        (j.items || []).forEach(e => { if (e.status !== 'cancelled') all.push(this.mapEvent(e, c)); });
+        pageToken = j.nextPageToken || '';
+      } while (pageToken);
+    }
+    for (let d = from; d < to; d = addDays(d, 1)) delete this.byDate[d];
+    all.forEach(e => {
+      let d = e.date; const last = e.allDay && e.endDate ? addDays(e.endDate, -1) : e.date; let n = 0;
+      while (d <= last && n < 31) { if (d >= from && d < to) (this.byDate[d] = this.byDate[d] || []).push(e); d = addDays(d, 1); n++; }
+    });
+    this.persist();
+  },
+  async fetchMonth(m) {
+    const first = m + '-01'; const from = addDays(first, -dow(first) - 7); const to = addDays(from, 56);
+    this.fetched[m] = Date.now();
+    await this.fetchRange(from, to);
+  },
+  forDate(d) { return (this.byDate[d] || []).slice().sort((a, b) => (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0) || (a.start || '').localeCompare(b.start || '')); },
+  findEvent(gid) { for (const d in this.byDate) { const e = this.byDate[d].find(x => x.gid === gid); if (e) return e; } return null; },
+  body(ev) {
+    const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'Europe/Istanbul';
+    const b = { summary: ev.title, description: ev.notes || '' };
+    if (ev.allDay || !ev.start) { b.start = { date: ev.date }; b.end = { date: addDays(ev.date, 1) }; }
+    else {
+      let end = ev.end; if (!end || end <= ev.start) { const h = Math.min(23, +ev.start.slice(0, 2) + 1); end = pad(h) + ':' + ev.start.slice(3, 5); }
+      b.start = { dateTime: ev.date + 'T' + ev.start + ':00', timeZone: tz }; b.end = { dateTime: ev.date + 'T' + end + ':00', timeZone: tz };
+    }
+    return b;
+  },
+  async insert(calId, ev) { const r = await Drive.api(CAL_API + '/calendars/' + encodeURIComponent(calId) + '/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.body(ev)) }); return r.json(); },
+  async patch(calId, gid, ev) { const r = await Drive.api(CAL_API + '/calendars/' + encodeURIComponent(calId) + '/events/' + encodeURIComponent(gid), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.body(ev)) }); return r.json(); },
+  async del(calId, gid) { try { await Drive.api(CAL_API + '/calendars/' + encodeURIComponent(calId) + '/events/' + encodeURIComponent(gid), { method: 'DELETE' }); } catch (e) { if (e.status !== 404 && e.status !== 410) throw e; } },
+  // Rutin tarihini takvime yaz (tüm gün etkinlik)
+  async upsertRoutine(r) {
+    if (!this.on() || this.cfg.routines === false || !r.toCal) return;
+    if (!this.ready() || !this.cfg.def) { r._calPending = 1; return; }
+    const ev = { title: r.title, date: r.next, allDay: true, notes: 'PUSULA rutini · ' + recText(r.rec) };
+    try {
+      if (r.gev && r.gev.id) { try { await this.patch(r.gev.cal, r.gev.id, ev); } catch (e) { if (e.status === 404 || e.status === 410) r.gev = null; else throw e; } }
+      if (!r.gev || !r.gev.id) { const res = await this.insert(this.cfg.def, ev); r.gev = { id: res.id, cal: this.cfg.def }; }
+      delete r._calPending; await save(r, { silent: true });
+    } catch (e) { console.warn(e); r._calPending = 1; }
+  },
+  async flushRoutines() { for (const r of list('routine')) if (r._calPending && r.toCal) await this.upsertRoutine(r); },
+  async sync() {
+    if (!this.ready() || this.busy) { if (this.on() && !this.ready() && navigator.onLine) this.setStatus('needauth'); return; }
+    this.busy = true; this.setStatus('syncing');
+    try {
+      if (!this.cals().length) await this.listCalendars();
+      const months = new Set([today().slice(0, 7), (S.calMonth || today().slice(0, 7))]);
+      for (const m of months) await this.fetchMonth(m);
+      await this.flushRoutines();
+      this.setStatus('ok');
+      if (!S.ink && !S.noteEd && !$('#sheetRoot').classList.contains('open') && (S.tab === 'today' || (S.tab === 'plan' && S.planSub === 'calendar'))) render();
+    } catch (e) { console.warn(e); this.setStatus(e.auth ? 'needauth' : 'error', e.message); }
+    finally { this.busy = false; }
+  }
+};
+function calStatusHtml() {
+  const c = Cal, s = c.status;
+  if (!c.on()) return '<span class="status-dot"></span>Kapalı';
+  if (s === 'syncing') return '<span class="status-dot syncing"></span>Eşitleniyor…';
+  if (s === 'needauth') return '<span class="status-dot syncing"></span>Eşitlemek için “Şimdi eşitle”ye dokun';
+  if (s === 'error') return '<span class="status-dot error"></span>' + esc(c.error);
+  return '<span class="status-dot ok"></span><span>Bağlı</span> · ' + c.cals().filter(x => x.on).length + ' <span>takvim</span>';
+}
+function openCal() {
+  if (navigator.onLine) Drive.loadGis().catch(() => {});
+  let body;
+  if (!Cal.on()) {
+    body = '<p class="muted">Google Takvim etkinliklerin PUSULA takviminde ve Bugün ekranında görünür. PUSULA’dan eklediğin etkinlikler Google Takvim’e yazılır.</p>' +
+      '<p class="muted">Rutinlerin tarihlerini de takvime yazabilirim; böylece telefonuna Google Takvim bildirimi gelir.</p>' +
+      '<div class="sheet-msg" id="calMsg"></div><button class="btn primary block" data-act="cal-connect">' + icon('event') + ' Google Takvim’i bağla</button>' +
+      '<p class="muted sm">Hata alırsan: Google Cloud’da PUSULA projesinde <b>Google Calendar API</b>’nin açık (Enable) olduğundan emin ol.</p>';
+  } else {
+    const cals = Cal.cals();
+    body = '<div class="set-row"><div class="grow"><div>Google Takvim bağlı</div><div class="sub" id="calStatus2">' + calStatusHtml() + '</div></div></div>' +
+      '<div class="set-sub">Gösterilecek takvimler</div>' + (cals.length ? cals.map(c => '<div class="set-row"><span class="cal-dot" style="background:' + esc(c.color || 'var(--accent)') + '"></span><div class="grow u">' + esc(c.name) + '</div><button class="switch ' + (c.on ? 'on' : '') + '" data-act="cal-toggle" data-id="' + esc(c.id) + '" aria-label="Aç/kapat"></button></div>').join('') : '<p class="muted sm">Takvim listesi için “Şimdi eşitle”ye dokun.</p>') +
+      (Cal.writable().length ? '<label class="field"><span>Yeni etkinlikler şu takvime</span><select class="input" id="calDef">' + Cal.writable().map(c => '<option value="' + esc(c.id) + '" ' + (Cal.cfg.def === c.id ? 'selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select></label>' : '') +
+      '<div class="set-row" style="margin-top:8px"><div class="grow"><div>Rutin tarihlerini takvime yaz</div><div class="sub">Rutin eklerken ayrıca seçebilirsin</div></div><button class="switch ' + (Cal.cfg.routines !== false ? 'on' : '') + '" data-act="cal-routines" aria-label="Aç/kapat"></button></div>' +
+      '<button class="btn primary block" data-act="sync-now">' + icon('sync') + ' Şimdi eşitle</button><button class="btn block" data-act="cal-off">Bu cihazda bağlantıyı kes</button>';
+  }
+  openSheet(sheetHead('Google Takvim') + '<div class="sheet-body">' + body + '</div>', { onClose: () => setTimeout(render, 0) });
+}
+function calConnect() {
+  const msg = $('#calMsg'); const say = (t, cls) => { if (msg) { msg.textContent = t; msg.className = 'sheet-msg ' + (cls || ''); } };
+  if (!navigator.onLine) return say('Bağlanmak için internet gerekli.', 'err');
+  if (!Drive.gisReady()) { say('Google girişi hazırlanıyor… birkaç saniye sonra tekrar bas.'); Drive.loadGis().catch(e => say(e.message, 'err')); return; }
+  say('Google penceresi açılıyor…');
+  Drive.requestToken('consent', [GCAL_SCOPE]).then(async () => {
+    if (!Drive.tokenOk(GCAL_SCOPE)) return say('Takvim izni verilmedi.', 'err');
+    Cal.cfg = Object.assign({ routines: true }, Cal.cfg || {}, { connected: true }); await Cal.saveCfg();
+    if (Cal.cfg.routines !== false) for (const r of list('routine')) if (!r.toCal) { r.toCal = true; r._calPending = 1; await save(r, { silent: true }); }
+    say('Bağlandı, takvimler alınıyor…', 'ok');
+    try { await Cal.listCalendars(); await Cal.sync(); toast('Google Takvim bağlandı'); openCal(); }
+    catch (e) { say(e.message, 'err'); }
+  }).catch(e => say(e.message, 'err'));
+}
+
 function driveStatusHtml() {
   const d = Drive, s = d.status;
   if (!d.on()) return '<span class="status-dot"></span>Kapalı';
@@ -465,130 +641,6 @@ function driveConnect() {
     toast(Drive.status === 'ok' ? 'Google Drive senkronu açık' : 'Bağlandı, eşitleme hatası: ' + Drive.error);
     openDrive();
   }).catch(e => say(e.message, 'err'));
-}
-
-/* ===================== Senkron (isteğe bağlı, Supabase) ===================== */
-const SETUP_SQL = `create table if not exists public.pusula_items (
-  id text not null,
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  type text not null,
-  data jsonb not null,
-  updated_at bigint not null,
-  deleted boolean not null default false,
-  server_ts timestamptz not null default clock_timestamp(),
-  primary key (user_id, id)
-);
-alter table public.pusula_items enable row level security;
-create policy "pusula_own" on public.pusula_items
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create index if not exists pusula_items_ts on public.pusula_items (user_id, server_ts);
-grant select, insert, update, delete on public.pusula_items to authenticated;
-create or replace function public.pusula_touch() returns trigger
-  language plpgsql as $$ begin new.server_ts := clock_timestamp(); return new; end $$;
-create trigger pusula_touch before insert or update on public.pusula_items
-  for each row execute function public.pusula_touch();`;
-
-const Sync = {
-  cfg: null, timer: null, busy: false, again: false, status: 'off', error: '', lastOk: null,
-  async load() { try { this.cfg = (await DB.getMeta('sync')) || null; } catch (e) { this.cfg = null; } this.status = this.enabled() ? 'idle' : 'off'; },
-  async saveCfg() { await DB.setMeta('sync', this.cfg); },
-  enabled() { return !!(this.cfg && this.cfg.refresh && this.cfg.url && this.cfg.key); },
-  schedule(delay) { if (!this.enabled()) return; clearTimeout(this.timer); this.timer = setTimeout(() => this.run(), delay == null ? 2500 : delay); },
-  hdr(auth) { const h = { apikey: this.cfg.key, 'Content-Type': 'application/json' }; if (auth) h.Authorization = 'Bearer ' + this.cfg.access; return h; },
-  async errText(r) { try { const j = await r.json(); return j.message || j.msg || j.error_description || j.error || ('Hata ' + r.status); } catch (e) { return 'Hata ' + r.status; } },
-  setSession(j) {
-    this.cfg.access = j.access_token; this.cfg.refresh = j.refresh_token;
-    this.cfg.exp = Date.now() + (j.expires_in || 3600) * 1000 - 90000;
-    if (j.user) { this.cfg.uid = j.user.id; this.cfg.email = j.user.email; }
-  },
-  async auth(kind, email, password) {
-    const url = this.cfg.url + (kind === 'signup' ? '/auth/v1/signup' : '/auth/v1/token?grant_type=password');
-    const r = await fetch(url, { method: 'POST', headers: this.hdr(false), body: JSON.stringify({ email, password }) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.msg || j.error_description || j.message || ('Hata ' + r.status));
-    if (!j.access_token) return 'confirm';
-    this.setSession(j); this.cfg.lastPull = null; await this.saveCfg();
-    // Tüm yerel kayıtları bir kez buluta gönder
-    const all = []; S.items.forEach(it => { if (it.type !== 'settings' || it.updated) { it._dirty = 1; all.push(it); } });
-    await DB.putMany(all);
-    return 'ok';
-  },
-  async ensureToken() {
-    if (Date.now() < (this.cfg.exp || 0)) return;
-    const r = await fetch(this.cfg.url + '/auth/v1/token?grant_type=refresh_token', { method: 'POST', headers: this.hdr(false), body: JSON.stringify({ refresh_token: this.cfg.refresh }) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      if (r.status === 400 || r.status === 401) { this.cfg.refresh = null; await this.saveCfg(); }
-      throw new Error('Oturum yenilenemedi, Ayarlar > Senkron’dan tekrar giriş yap');
-    }
-    this.setSession(j); await this.saveCfg();
-  },
-  setStatus(s, err) {
-    this.status = s; this.error = err || '';
-    if (s === 'ok') this.lastOk = new Date();
-    const el = $('#syncStatus'); if (el) el.innerHTML = syncStatusHtml();
-    const b = $('#syncBtn'); if (b) b.classList.toggle('spin', s === 'syncing');
-  },
-  async run() {
-    if (!this.enabled()) return;
-    if (this.busy) { this.again = true; return; }
-    if (!navigator.onLine) { this.setStatus('offline'); return; }
-    this.busy = true; this.setStatus('syncing');
-    try {
-      await this.ensureToken();
-      const base = this.cfg.url + '/rest/v1/pusula_items';
-      // 1) Gönder
-      const dirty = []; S.items.forEach(it => { if (it._dirty) dirty.push(it); });
-      for (let i = 0; i < dirty.length; i += 50) {
-        const chunk = dirty.slice(i, i + 50);
-        const sent = chunk.map(it => [it.id, it.updated]);
-        const rows = chunk.map(it => ({ id: it.id, user_id: this.cfg.uid, type: it.type, data: strip(it), updated_at: it.updated || 0, deleted: !!it.deleted }));
-        const r = await fetch(base + '?on_conflict=user_id,id', { method: 'POST', headers: Object.assign(this.hdr(true), { Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(rows) });
-        if (!r.ok) throw new Error(await this.errText(r));
-        const clean = [];
-        sent.forEach(([id, upd]) => { const cur = S.items.get(id); if (cur && cur.updated === upd) { delete cur._dirty; clean.push(cur); } });
-        await DB.putMany(clean);
-      }
-      // 2) Al
-      const since = this.cfg.lastPull || '1970-01-01T00:00:00Z';
-      const sinceQ = new Date(new Date(since.replace(/(\.\d{3})\d+/, '$1')).getTime() - 60000).toISOString();
-      let maxTs = since, changed = false, offset = 0;
-      for (;;) {
-        const r = await fetch(base + '?select=id,data,updated_at,deleted,server_ts&server_ts=gt.' + encodeURIComponent(sinceQ) + '&order=server_ts.asc&limit=500&offset=' + offset, { headers: this.hdr(true) });
-        if (!r.ok) throw new Error(await this.errText(r));
-        const rows = await r.json(); const toPut = [];
-        rows.forEach(row => {
-          if (row.server_ts > maxTs) maxTs = row.server_ts;
-          const loc = S.items.get(row.id);
-          if (!loc || Number(row.updated_at) > (loc.updated || 0)) {
-            const it = Object.assign({}, row.data, { id: row.id, updated: Number(row.updated_at), deleted: !!row.deleted });
-            delete it._dirty; S.items.set(it.id, it); toPut.push(it); changed = true;
-          }
-        });
-        await DB.putMany(toPut);
-        if (rows.length < 500) break;
-        offset += 500;
-      }
-      this.cfg.lastPull = maxTs; await this.saveCfg();
-      this.setStatus('ok');
-      if (changed) { thumbCache.clear(); if (!S.ink && !S.noteEd) render(); else applyTheme(); }
-    } catch (e) {
-      console.warn(e);
-      this.setStatus(navigator.onLine ? 'error' : 'offline', e.message || String(e));
-    } finally {
-      this.busy = false;
-      if (this.again) { this.again = false; this.schedule(800); }
-    }
-  }
-};
-function syncStatusHtml() {
-  const s = Sync.status;
-  if (!Sync.enabled()) return '<span class="status-dot"></span>Kapalı — veriler sadece bu cihazda';
-  if (s === 'syncing') return '<span class="status-dot syncing"></span>Eşitleniyor…';
-  if (s === 'ok') return '<span class="status-dot ok"></span>Güncel · ' + Sync.lastOk.toLocaleTimeString(TR, { hour: '2-digit', minute: '2-digit' });
-  if (s === 'offline') return '<span class="status-dot"></span>Çevrimdışı — internet gelince eşitlenecek';
-  if (s === 'error') return '<span class="status-dot error"></span>Hata: ' + esc(Sync.error);
-  return '<span class="status-dot ok"></span>Açık · ' + esc(Sync.cfg.email || '');
 }
 
 /* ===================== Dil (TR / EN) ===================== */
@@ -657,7 +709,25 @@ const EN = {
   'Bu cihazdaki TÜM PUSULA verileri silinecek. Emin misin?': 'ALL PUSULA data on this device will be deleted. Are you sure?',
   'Son kez soruyorum: geri alınamaz. Önce yedek aldın mı? Silmek için Tamam.': 'Last chance: this can’t be undone. Did you back up first? Press OK to delete.',
   'Veriler bu yedekteki hâline dönecek. Şu anki hâlin de ayrıca yedeklenecek. Devam edilsin mi?': 'Your data will return to this backup. The current state will be backed up too. Continue?',
-  'Senkron (cihazlar arası)': 'Sync (across devices)', 'Bu cihazda senkronu kapat': 'Turn off sync on this device', 'Hesap oluştur': 'Create account', 'Giriş yap': 'Sign in', 'Kurulum kodunu kopyala': 'Copy setup code', 'E-posta': 'Email', 'Şifre (en az 6 karakter)': 'Password (at least 6 characters)'
+  'Senkron (cihazlar arası)': 'Sync (across devices)', 'Bu cihazda senkronu kapat': 'Turn off sync on this device', 'Hesap oluştur': 'Create account', 'Giriş yap': 'Sign in', 'Kurulum kodunu kopyala': 'Copy setup code', 'E-posta': 'Email', 'Şifre (en az 6 karakter)': 'Password (at least 6 characters)',
+  'Rutinler': 'Routines', 'Rutin': 'Routine', '+ Rutin': '+ Routine', 'Yeni rutin': 'New routine', 'Rutini düzenle': 'Edit routine', 'Örn. Araç bakımı': 'e.g. Car service', 'Yaklaşan rutinler': 'Upcoming routines', 'Yaptım': 'Done it',
+  'Ne sıklıkla?': 'How often?', 'Her': 'Every', 'Gün': 'Day', 'Hafta': 'Week', 'Ay': 'Month', 'Yıl': 'Year', 'Belirli günler (isteğe bağlı)': 'Specific days (optional)', 'Ayın hangi günü?': 'Which day of the month?', 'Aynı gün': 'Same day', 'Son gün': 'Last day',
+  'Nasıl sayılsın?': 'How to count?', 'Takvime göre': 'By calendar', 'Yaptıktan sonra': 'After done',
+  'Takvime göre: tarih sabittir (ör. her ayın 5’i). Yaptıktan sonra: sayaç yaptığın gün yeniden başlar (ör. filtre değişiminden 3 ay sonra).': 'By calendar: the date is fixed (e.g. the 5th of every month). After done: the countdown restarts the day you do it (e.g. 3 months after changing the filter).',
+  'Sonraki tarih': 'Next date', 'Son yapılma': 'Last done', 'Maliyet (isteğe bağlı)': 'Cost (optional)', 'Servis, parça, detay…': 'Service, parts, details…', 'Geçmiş': 'History',
+  'Google Takvim’e yaz': 'Write to Google Calendar', 'Sonraki tarih takviminde tüm gün etkinlik olarak görünür': 'The next date shows as an all-day event in your calendar',
+  'Tekrarlı işlerini buraya ekle: araç bakımı her 6 ayda, klima filtresi her 3 ayda, sigorta yenileme her yıl, bitki sulama 4 günde bir… “Yaptım” dediğinde sonraki tarih kendiliğinden hesaplanır.': 'Add your recurring chores here: car service every 6 months, AC filter every 3 months, insurance renewal every year, watering plants every 4 days… When you tap “Done it”, the next date is calculated automatically.',
+  'Google Takvim': 'Google Calendar', 'Google Takvim bağlı': 'Google Calendar connected', 'Gösterilecek takvimler': 'Calendars to show', 'Takvim listesi için “Şimdi eşitle”ye dokun.': 'Tap “Sync now” to load your calendars.',
+  'Yeni etkinlikler şu takvime': 'New events go to', 'Rutin tarihlerini takvime yaz': 'Write routine dates to calendar', 'Rutin eklerken ayrıca seçebilirsin': 'You can also choose per routine', 'Bu cihazda bağlantıyı kes': 'Disconnect on this device',
+  'Google Takvim etkinliklerin PUSULA takviminde ve Bugün ekranında görünür. PUSULA’dan eklediğin etkinlikler Google Takvim’e yazılır.': 'Your Google Calendar events appear in the PUSULA calendar and on the Today screen. Events you add in PUSULA are written to Google Calendar.',
+  'Rutinlerin tarihlerini de takvime yazabilirim; böylece telefonuna Google Takvim bildirimi gelir.': 'Routine dates can be written to your calendar too, so Google Calendar notifies your phone.',
+  'Google Takvim’i bağla': 'Connect Google Calendar', 'Hata alırsan: Google Cloud’da PUSULA projesinde': 'If you get an error: in the PUSULA project on Google Cloud, make sure', '’nin açık (Enable) olduğundan emin ol.': 'is enabled.',
+  'Takvim izni verilmedi.': 'Calendar permission was not granted.', 'Bağlandı, takvimler alınıyor…': 'Connected, loading calendars…', 'Google Takvim bağlandı': 'Google Calendar connected', 'takvim': 'calendars',
+  'Nereye eklensin?': 'Add to', 'Sadece PUSULA': 'PUSULA only', 'Takvim': 'Calendar', 'Google Takvim için internet gerekli': 'Google Calendar needs internet', 'Google Takvim’de güncellendi': 'Updated in Google Calendar', 'Google Takvim’e eklendi': 'Added to Google Calendar',
+  'Bu etkinlik Google Takvim’den silinsin mi?': 'Delete this event from Google Calendar?', 'Google Takvim’den silindi': 'Deleted from Google Calendar', 'Google Takvim’i yenile': 'Refresh Google Calendar',
+  'Bu cihazda Google Takvim bağlantısı kesilsin mi? Google Takvim’deki etkinliklerin silinmez.': 'Disconnect Google Calendar on this device? Your Google Calendar events are not deleted.',
+  'Google ile eşitlemek için dokun': 'Tap to sync with Google', 'Google izni eksik, tekrar bağlan': 'Google permission missing, reconnect', 'Google Cloud’da bu API kapalı. console.cloud.google.com → PUSULA → APIs & Services → Library’den açman gerekiyor.': 'This API is disabled in Google Cloud. Enable it at console.cloud.google.com → PUSULA → APIs & Services → Library.',
+  '(başlıksız)': '(untitled)', 'Varsayılan': 'Default'
 };
 const EN_RX = [
   [/^\+(\d+) görev daha$/, '+$1 more tasks'],
@@ -681,7 +751,12 @@ const EN_RX = [
   [/^“(.+)” etiketi silinsin mi\? \(Notlar ve görevler silinmez\)$/, 'Delete the tag “$1”? (Notes and tasks are kept)'],
   [/^İçe aktarılamadı: (.+)$/, 'Import failed: $1'],
   [/^Bağlandı, eşitleme hatası: (.+)$/, 'Connected, sync error: $1'],
-  [/^Hata: (.+)$/, 'Error: $1']
+  [/^Hata: (.+)$/, 'Error: $1'],
+  [/^(\d+) gün gecikti$/, '$1 days late'],
+  [/^(\d+) gün$/, '$1 days'],
+  [/^· son: (.+)$/, (m, d) => '· last: ' + (EN[d] || d)],
+  [/^Yapıldı · sonraki: (.+)$/, (m, d) => 'Done · next: ' + (EN[d] || d)],
+  [/^“(.+)” rutini silinsin mi\?$/, 'Delete the routine “$1”?']
 ];
 function tr(s) {
   if (!s || !isEn()) return s;
@@ -746,8 +821,7 @@ const fval = name => { const el = $('#sheetRoot [name="' + name + '"]'); return 
 const TABS = [
   { k: 'today', icon: 'today' },
   { k: 'plan', icon: 'plan' },
-  { k: 'info', icon: 'info' },
-  { k: 'settings', icon: 'settings' }
+  { k: 'info', icon: 'info' }
 ];
 function planSubs() {
   return settings().plan.filter(m => m.on).map(m => ({ k: m.k, label: TL(m.k) }))
@@ -758,18 +832,22 @@ function infoSubs() {
   return a.concat(customMods().filter(m => m.home === 'info').map(m => ({ k: 'c:' + m.id, label: m.name })));
 }
 function visibleTabs() { return TABS.filter(t => (t.k !== 'plan' || planSubs().length) && (t.k !== 'info' || infoSubs().length)); }
+const TAB_KEYS = ['today', 'plan', 'info', 'settings'];
 const subTitle = k => k && k.startsWith('c:') ? ((cmod(k.slice(2)) || {}).name || '') : T(k);
 function render() {
   applyTheme();
   const tabs = visibleTabs();
-  if (!tabs.find(t => t.k === S.tab)) S.tab = 'today';
+  if (S.tab !== 'settings' && !tabs.find(t => t.k === S.tab)) S.tab = 'today';
   $('#tabbar').innerHTML = tabs.map(t => '<button class="tab ' + (S.tab === t.k ? 'on' : '') + '" data-act="tab" data-k="' + t.k + '">' + icon(t.icon) + '<span class="u">' + esc(TL(t.k)) + '</span></button>').join('');
   let title = '', actions = '', body = '';
   if (S.tab === 'today') { title = T('today'); body = viewToday(); }
   else if (S.tab === 'plan') { body = viewPlan(); title = subTitle(S.planSub); if (S.planSub === 'calendar') actions = '<button class="link" data-act="cal-today">Bugün</button>'; }
   else if (S.tab === 'info') { body = viewInfo(); title = subTitle(S.infoSub); }
   else { title = T('settings'); body = viewSettings(); }
-  if ((Sync.enabled() || Drive.on()) && S.tab !== 'settings') actions += '<button id="syncBtn" class="icon-btn ' + (Sync.status === 'syncing' || Drive.status === 'syncing' ? 'spin ' : '') + (Drive.status === 'needauth' || Drive.status === 'error' ? 'warn' : '') + '" data-act="sync-now" aria-label="Eşitle">' + icon('sync') + '</button>';
+  if ((Drive.on() || Cal.on()) && S.tab !== 'settings') actions += '<button id="syncBtn" class="icon-btn ' + (Drive.status === 'syncing' ? 'spin ' : '') + (Drive.status === 'needauth' || Drive.status === 'error' ? 'warn' : '') + '" data-act="sync-now" aria-label="Eşitle">' + icon('sync') + '</button>';
+  actions += S.tab === 'settings'
+    ? '<button class="icon-btn" data-act="close-settings" aria-label="Kapat">' + icon('x') + '</button>'
+    : '<button class="icon-btn" data-act="open-settings" aria-label="Ayarlar">' + icon('settings') + '</button>';
   $('#pageTitle').textContent = title;
   $('#topActions').innerHTML = actions;
   $('#view').innerHTML = body;
@@ -785,7 +863,7 @@ function viewPlan() {
   const subs = planSubs();
   if (!subs.find(x => x.k === S.planSub)) S.planSub = subs[0].k;
   const k = S.planSub;
-  return subSeg(subs, k, 'plan-sub') + (k === 'tasks' ? viewTasks() : k === 'calendar' ? viewCalendar() : k === 'habits' ? viewHabits() : viewCustom(k.slice(2)));
+  return subSeg(subs, k, 'plan-sub') + (k === 'tasks' ? viewTasks() : k === 'calendar' ? viewCalendar() : k === 'routines' ? viewRoutines() : k === 'habits' ? viewHabits() : viewCustom(k.slice(2)));
 }
 function viewInfo() {
   const subs = infoSubs();
@@ -888,7 +966,7 @@ function viewToday() {
   if (planOn('calendar')) { const n = list('event').filter(e => e.date === t0).length; pills.push('<button class="pill" data-act="go" data-k="calendar"><b>' + n + '</b> etkinlik</button>'); }
   if (planOn('habits')) { const hs = list('habit').filter(x => habitScheduled(x, t0)); const d = hs.filter(x => (x.log || {})[t0]).length; if (hs.length) pills.push('<button class="pill" data-act="go" data-k="habits"><b>' + d + '/' + hs.length + '</b> alışkanlık</button>'); }
   let html = '<div class="hero"><div class="hero-greet">' + greet + (st.name ? ', ' + esc(st.name) : '') + '</div><div class="hero-date">' + fmtLong(t0) + '</div><div class="hero-sum">' + pills.join('') + '</div></div><div class="grid-cards">';
-  const avail = { tasks: planOn('tasks'), events: planOn('calendar'), habits: planOn('habits'), goals: planOn('habits'), pinned: st.notes };
+  const avail = { tasks: planOn('tasks'), events: planOn('calendar'), routines: planOn('routines'), habits: planOn('habits'), goals: planOn('habits'), pinned: st.notes };
   customMods().forEach(m => { avail['c:' + m.id] = true; });
   st.today.forEach(c => { if (!c.on || !avail[c.k]) return; if (String(c.k).startsWith('c:')) html += cardCustom(c.k.slice(2)); else if (TODAY_CARDS[c.k]) html += TODAY_CARDS[c.k](); });
   html += '</div>';
@@ -913,7 +991,14 @@ const TODAY_CARDS = {
   },
   events() {
     const ev = list('event').filter(e => e.date === today()).sort(eventSort);
-    return card('event', T('calendar'), ev.length ? ev.map(eventRow).join('') : '<div class="empty">Bugün takvimin boş.</div>', 'calendar');
+    const gev = Cal.on() ? Cal.forDate(today()) : [];
+    return card('event', T('calendar'), ev.length || gev.length ? gev.map(gEventRow).join('') + ev.map(eventRow).join('') : '<div class="empty">Bugün takvimin boş.</div>', 'calendar');
+  },
+  routines() {
+    const lim = addDays(today(), 7);
+    const rs = list('routine').filter(r => r.next && r.next <= lim).sort((a, b) => a.next.localeCompare(b.next));
+    if (!rs.length) return '';
+    return card('repeat', T('routines'), rs.slice(0, 6).map(routineRow).join(''), 'routines');
   },
   habits() {
     const t0 = today(); const hs = list('habit').filter(x => habitScheduled(x, t0)).sort((a, b) => (a.created || 0) - (b.created || 0));
@@ -1022,14 +1107,23 @@ const EV_COLORS = ['', '#E57B70', '#E2B54E', '#6CC08F', '#3CC4B6', '#B39AE6', '#
 function eventRow(e) {
   return '<div class="row" data-act="edit-event" data-id="' + e.id + '"><div class="ev-time">' + (e.allDay || !e.start ? 'Tüm gün' : e.start + (e.end ? '<small>' + e.end + '</small>' : '')) + '</div><div class="ev-bar" style="background:' + (e.color || 'var(--accent)') + '"></div><div class="row-main"><div class="row-title">' + esc(e.title) + '</div>' + (e.notes ? '<div class="row-meta u">' + esc(e.notes.slice(0, 100)) + '</div>' : '') + '</div></div>';
 }
+function gEventRow(e) {
+  return '<div class="row gev" data-act="gev-edit" data-gid="' + esc(e.gid) + '"><div class="ev-time">' + (e.allDay || !e.start ? 'Tüm gün' : e.start + (e.end ? '<small>' + e.end + '</small>' : '')) + '</div><div class="ev-bar" style="background:' + esc(e.color || 'var(--accent)') + '"></div><div class="row-main"><div class="row-title">' + esc(e.title) + '</div><div class="row-meta"><span class="u">' + esc(e.calName || 'Google') + '</span>' + (e.loc ? ' · <span class="u">' + esc(e.loc) + '</span>' : '') + '</div></div></div>';
+}
 function viewCalendar() {
   const t0 = today(); const m = S.calMonth || S.calSel.slice(0, 7); S.calMonth = m;
+  if (Cal.ready() && !Cal.busy && (!Cal.fetched[m] || Date.now() - Cal.fetched[m] > 300000)) {
+    Cal.fetched[m] = Date.now();
+    setTimeout(() => Cal.fetchMonth(m).then(() => { if (S.tab === 'plan' && S.planSub === 'calendar' && !$('#sheetRoot').classList.contains('open')) render(); }).catch(e => console.warn(e)), 0);
+  }
   const first = m + '-01'; const start = addDays(first, -dow(first));
   const dim = new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate();
   const cellsN = Math.ceil((dow(first) + dim) / 7) * 7;
   const marks = {};
   list('event').forEach(e => { if (e.date) { marks[e.date] = marks[e.date] || { e: 0, t: 0 }; marks[e.date].e++; } });
   list('task').forEach(t => { if (t.due && !t.done) { marks[t.due] = marks[t.due] || { e: 0, t: 0 }; marks[t.due].t++; } });
+  if (Cal.on()) Object.keys(Cal.byDate).forEach(d => { if (Cal.byDate[d].length) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += Cal.byDate[d].length; } });
+  list('routine').forEach(r => { if (r.next) { marks[r.next] = marks[r.next] || { e: 0, t: 0 }; marks[r.next].t++; } });
   let cells = '';
   for (let i = 0; i < cellsN; i++) {
     const d = addDays(start, i); const mk = marks[d];
@@ -1038,21 +1132,27 @@ function viewCalendar() {
   const label = parseYmd(first).toLocaleDateString(TR, { month: 'long', year: 'numeric' });
   const ev = list('event').filter(e => e.date === S.calSel).sort(eventSort);
   const tk = planOn('tasks') ? list('task').filter(t => t.due === S.calSel).sort(taskSort) : [];
+  const gev = Cal.on() ? Cal.forDate(S.calSel) : [];
+  const rts = list('routine').filter(r => r.next === S.calSel);
   const agenda = '<section class="card"><div class="card-head"><div class="card-title">' + relDayLong(S.calSel) + '</div><button class="link" data-act="add-event">+ Etkinlik</button></div>' +
-    (ev.length || tk.length ? ev.map(eventRow).join('') + tk.map(taskRow).join('') : '<div class="empty">Bu gün için kayıt yok.</div>') + '</section>';
+    (ev.length || tk.length || gev.length || rts.length ? gev.map(gEventRow).join('') + ev.map(eventRow).join('') + rts.map(routineRow).join('') + tk.map(taskRow).join('') : '<div class="empty">Bu gün için kayıt yok.</div>') +
+    (Cal.on() && !Cal.ready() ? '<button class="link cal-refresh" data-act="sync-now">Google Takvim’i yenile</button>' : '') + '</section>';
   return '<div class="cal-wrap"><section class="card"><div class="cal-head"><button class="icon-btn" data-act="cal-prev" aria-label="Önceki ay">' + icon('left') + '</button><div class="cal-month">' + label + '</div><button class="icon-btn" data-act="cal-next" aria-label="Sonraki ay">' + icon('right') + '</button></div><div class="cal-grid">' + DAYS.map(x => '<div class="cal-dow">' + x + '</div>').join('') + cells + '</div></section>' + agenda + '</div>';
 }
 function relDayLong(s) { const r = relDay(s); return (r === 'Bugün' || r === 'Yarın' || r === 'Dün') ? r + ' · ' + fmtShort(s) : fmtLong(s); }
 function shiftMonth(n) { const d = parseYmd(S.calMonth + '-01'); d.setMonth(d.getMonth() + n); S.calMonth = ymd(d).slice(0, 7); render(); }
-function editEvent(e, date) {
-  const isNew = !e;
-  const d = e ? clone(e) : { id: uid(), type: 'event', title: '', date: date || today(), allDay: false, start: '', end: '', notes: '', color: '' };
+function editEvent(e, date, gev) {
+  const isNew = !e && !gev;
+  const d = gev ? Object.assign({}, gev) : e ? clone(e) : { id: uid(), type: 'event', title: '', date: date || today(), allDay: false, start: '', end: '', notes: '', color: '' };
   S.draft = d;
+  const targets = Cal.on() ? Cal.writable() : [];
+  const targetSel = gev ? '<div class="field"><span>Takvim</span><div class="muted u">' + esc(gev.calName || 'Google') + '</div></div>'
+    : (isNew && targets.length ? '<label class="field"><span>Nereye eklensin?</span><select class="input" name="target">' + targets.map(c => '<option value="' + esc(c.id) + '" ' + (Cal.cfg.def === c.id ? 'selected' : '') + '>Google · ' + esc(c.name) + '</option>').join('') + '<option value="local">Sadece PUSULA</option></select></label>' : '');
   openSheet(sheetHead(isNew ? 'Yeni etkinlik' : 'Etkinliği düzenle') + '<div class="sheet-body">' +
-    '<input class="input big" name="title" placeholder="Etkinlik adı" value="' + esc(d.title) + '" autocomplete="off" enterkeyhint="done">' +
+    '<input class="input big" name="title" placeholder="Etkinlik adı" value="' + esc(d.title) + '" autocomplete="off" enterkeyhint="done">' + targetSel +
     '<div class="field-row"><label class="field"><span>Tarih</span><input type="date" class="input" name="date" value="' + d.date + '"></label><div class="field toggle-field"><span>Tüm gün</span><button type="button" class="switch ' + (d.allDay ? 'on' : '') + '" data-act="switch" data-name="allDay" aria-label="Tüm gün"></button></div></div>' +
     '<div class="field-row times ' + (d.allDay ? 'hide' : '') + '"><label class="field"><span>Başlangıç</span><input type="time" class="input" name="start" value="' + (d.start || '') + '"></label><label class="field"><span>Bitiş</span><input type="time" class="input" name="end" value="' + (d.end || '') + '"></label></div>' +
-    '<div class="field"><span>Renk</span><div class="chips">' + EV_COLORS.map(c => '<button type="button" class="swatch ' + ((d.color || '') === c ? 'on' : '') + '" data-act="pick-color" data-c="' + c + '" style="background:' + (c || 'var(--accent)') + '" aria-label="Renk"></button>').join('') + '</div></div>' +
+    (gev ? '' : '<div class="field"><span>Renk</span><div class="chips">') + (gev ? [] : EV_COLORS).map(c => '<button type="button" class="swatch ' + ((d.color || '') === c ? 'on' : '') + '" data-act="pick-color" data-c="' + c + '" style="background:' + (c || 'var(--accent)') + '" aria-label="Renk"></button>').join('') + (gev ? '' : '</div></div>') +
     '<div class="field"><span>Not</span><textarea class="input" name="notes" rows="3" placeholder="Yer, detay…">' + esc(d.notes) + '</textarea></div>' +
     '</div><div class="sheet-foot">' + (isNew ? '' : '<button class="btn danger-ghost" data-act="delete-event">' + icon('trash') + ' Sil</button>') + '<button class="btn primary" data-act="save-event">Kaydet</button></div>');
   if (isNew) setTimeout(() => { const i = $('#sheetRoot [name=title]'); if (i) i.focus(); }, 80);
@@ -1061,10 +1161,125 @@ async function saveEvent() {
   const d = S.draft; const title = fval('title').trim();
   if (!title) { $('#sheetRoot [name=title]').classList.add('err'); return; }
   const allDay = $('#sheetRoot .switch[data-name=allDay]').classList.contains('on');
+  const target = d.gid ? d.cal : (fval('target') || 'local');
+  if (target !== 'local') {
+    const ev = { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim() };
+    if (!navigator.onLine) return toast('Google Takvim için internet gerekli');
+    if (!Drive.tokenOk(GCAL_SCOPE)) { try { await Drive.requestToken(); } catch (e) { return toast(e.message); } }
+    try {
+      if (d.gid) await Cal.patch(d.cal, d.gid, ev); else await Cal.insert(target, ev);
+      closeSheet(); S.calSel = ev.date; S.calMonth = ev.date.slice(0, 7);
+      await Cal.fetchMonth(S.calMonth); render(); toast(d.gid ? 'Google Takvim’de güncellendi' : 'Google Takvim’e eklendi');
+    } catch (e) { toast(e.message); }
+    return;
+  }
   const base = S.items.get(d.id) || d;
   Object.assign(base, { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim(), color: d.color || '' });
   S.calSel = base.date; S.calMonth = base.date.slice(0, 7);
   closeSheet(); await save(base);
+}
+
+/* ----- Tekrar motoru ----- */
+// rec = { mode: 'cal' (takvime göre) | 'after' (yaptıktan sonra), every: N, unit: 'day'|'week'|'month'|'year', wdays: [0..6], mday: null | 1-31 | 'last' }
+function nextOcc(from, rec) {
+  const n = Math.max(1, parseInt(rec.every, 10) || 1); const d = parseYmd(from);
+  if (rec.unit === 'day') d.setDate(d.getDate() + n);
+  else if (rec.unit === 'week') {
+    if (rec.mode === 'cal' && rec.wdays && rec.wdays.length) { let x = from; for (let i = 0; i < 7 * n + 7; i++) { x = addDays(x, 1); if (rec.wdays.includes(dow(x))) return x; } return addDays(from, 7 * n); }
+    d.setDate(d.getDate() + 7 * n);
+  } else if (rec.unit === 'month') {
+    const day = rec.mday === 'last' ? 31 : (rec.mode === 'cal' && rec.mday ? +rec.mday : d.getDate());
+    d.setDate(1); d.setMonth(d.getMonth() + n);
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(day, last));
+  } else if (rec.unit === 'year') { const m = d.getMonth(), day = d.getDate(); d.setDate(1); d.setFullYear(d.getFullYear() + n); d.setMonth(m); d.setDate(Math.min(day, new Date(d.getFullYear(), m + 1, 0).getDate())); }
+  else d.setDate(d.getDate() + n);
+  return ymd(d);
+}
+function recText(rec) {
+  if (!rec) return '';
+  const en = isEn(), n = Math.max(1, parseInt(rec.every, 10) || 1);
+  const U = en ? { day: ['day', 'days'], week: ['week', 'weeks'], month: ['month', 'months'], year: ['year', 'years'] } : { day: ['gün', 'günde'], week: ['hafta', 'haftada'], month: ['ay', 'ayda'], year: ['yıl', 'yılda'] };
+  let t = n === 1 ? (en ? 'Every ' + U[rec.unit][0] : 'Her ' + U[rec.unit][0]) : (en ? 'Every ' + n + ' ' + U[rec.unit][1] : 'Her ' + n + ' ' + U[rec.unit][1] + ' bir');
+  if (rec.mode === 'cal' && rec.unit === 'week' && rec.wdays && rec.wdays.length && rec.wdays.length < 7) t = (en ? 'Every ' : 'Her ') + rec.wdays.slice().sort().map(i => DAYS[i]).join(', ');
+  if (rec.mode === 'cal' && rec.unit === 'month' && rec.mday) t += rec.mday === 'last' ? (en ? ', last day' : ', son gün') : (en ? ', day ' + rec.mday : ', ' + rec.mday + '. gün');
+  if (rec.mode === 'after') t += en ? ' · after done' : ' · yaptıktan sonra';
+  return t;
+}
+function recEditor(rec) {
+  rec = rec || { mode: 'cal', every: 1, unit: 'month', wdays: [], mday: null };
+  const units = [['day', 'Gün'], ['week', 'Hafta'], ['month', 'Ay'], ['year', 'Yıl']];
+  return '<div class="rec-ed"><div class="field"><span>Ne sıklıkla?</span><div class="rec-row"><span class="rec-her">Her</span><input type="number" class="input rec-n" name="recEvery" min="1" step="1" inputmode="numeric" value="' + (rec.every || 1) + '"><select class="input" name="recUnit">' + units.map(u => '<option value="' + u[0] + '" ' + (rec.unit === u[0] ? 'selected' : '') + '>' + u[1] + '</option>').join('') + '</select></div></div>' +
+    '<div class="field rec-week ' + (rec.unit === 'week' ? '' : 'hide') + '"><span>Belirli günler (isteğe bağlı)</span><div class="day-chips">' + DAYS.map((x, i) => '<button type="button" class="chip ' + ((rec.wdays || []).includes(i) ? 'on' : '') + '" data-act="toggle-on" data-i="' + i + '">' + x + '</button>').join('') + '</div></div>' +
+    '<label class="field rec-month ' + (rec.unit === 'month' ? '' : 'hide') + '"><span>Ayın hangi günü?</span><select class="input" name="recMday"><option value="">Aynı gün</option>' + Array.from({ length: 31 }, (_, i) => '<option value="' + (i + 1) + '" ' + (+rec.mday === i + 1 ? 'selected' : '') + '>' + (i + 1) + '</option>').join('') + '<option value="last" ' + (rec.mday === 'last' ? 'selected' : '') + '>Son gün</option></select></label>' +
+    '<div class="field"><span>Nasıl sayılsın?</span>' + seg('recMode', [['cal', 'Takvime göre'], ['after', 'Yaptıktan sonra']], rec.mode || 'cal') + '<div class="sub muted sm rec-hint">Takvime göre: tarih sabittir (ör. her ayın 5’i). Yaptıktan sonra: sayaç yaptığın gün yeniden başlar (ör. filtre değişiminden 3 ay sonra).</div></div></div>';
+}
+function readRec() {
+  const unit = fval('recUnit') || 'month';
+  return { mode: segVal('recMode') || 'cal', every: Math.max(1, parseInt(fval('recEvery'), 10) || 1), unit, wdays: unit === 'week' ? $$('#sheetRoot .rec-week .chip.on').map(b => +b.dataset.i) : [], mday: unit === 'month' ? (fval('recMday') === 'last' ? 'last' : (parseInt(fval('recMday'), 10) || null)) : null };
+}
+function routineNextAfterDone(r, doneDay) {
+  if (r.rec.mode === 'after') return nextOcc(doneDay, r.rec);
+  let n = r.next || doneDay; do { n = nextOcc(n, r.rec); } while (n <= doneDay);
+  return n;
+}
+
+/* ----- Rutinler (tekrarlı işler) ----- */
+function dueBadge(next) {
+  const d = daysBetween(today(), next);
+  if (d < 0) return '<span class="due late">' + (-d) + ' gün gecikti</span>';
+  if (d === 0) return '<span class="due now">Bugün</span>';
+  if (d === 1) return '<span class="due soon">Yarın</span>';
+  return '<span class="due">' + d + ' gün</span>';
+}
+function routineRow(r) {
+  return '<div class="row rt-row" data-act="rt-edit" data-id="' + r.id + '"><button class="check" data-act="rt-done" data-id="' + r.id + '" aria-label="Yaptım">' + icon('check') + '</button><div class="row-main"><div class="row-title">' + esc(r.title) + '</div><div class="row-meta"><span class="u">' + esc(recText(r.rec)) + '</span>' + (r.last ? '<span>· son: ' + relDay(r.last) + '</span>' : '') + (r.gev ? '<span>' + icon('event', 'xs') + '</span>' : '') + '</div></div>' + (r.next ? dueBadge(r.next) : '') + '</div>';
+}
+function viewRoutines() {
+  const t0 = today(), wk = addDays(t0, 7);
+  const rs = list('routine').sort((a, b) => (a.next || '9999').localeCompare(b.next || '9999'));
+  let h = '<div class="section-title first"><span class="u">' + esc(T('routines')) + '</span><button class="link" data-act="new-routine">+ Rutin</button></div>';
+  if (!rs.length) return h + '<div class="card"><div class="empty">Tekrarlı işlerini buraya ekle: araç bakımı her 6 ayda, klima filtresi her 3 ayda, sigorta yenileme her yıl, bitki sulama 4 günde bir… “Yaptım” dediğinde sonraki tarih kendiliğinden hesaplanır.</div></div>';
+  const over = rs.filter(r => r.next && r.next < t0), soon = rs.filter(r => r.next && r.next >= t0 && r.next <= wk), later = rs.filter(r => !r.next || r.next > wk);
+  const sec = (t, arr, cls) => arr.length ? '<div class="section-title ' + (cls || '') + '"><span>' + t + '<span class="count">' + arr.length + '</span></span></div><div class="card">' + arr.map(routineRow).join('') + '</div>' : '';
+  return h + sec('Gecikmiş', over, 'danger') + sec('Bu hafta', soon) + sec('Daha sonra', later);
+}
+function editRoutine(r) {
+  const isNew = !r;
+  const d = r ? clone(r) : { id: uid(), type: 'routine', title: '', rec: { mode: 'cal', every: 1, unit: 'month', wdays: [], mday: null }, next: today(), last: '', hist: [], cost: null, notes: '', toCal: Cal.on() && Cal.cfg.routines !== false };
+  S.draft = d;
+  const hist = (d.hist || []).slice(-10).reverse();
+  openSheet(sheetHead(isNew ? 'Yeni rutin' : 'Rutini düzenle') + '<div class="sheet-body">' +
+    '<input class="input big" name="title" placeholder="Örn. Araç bakımı" value="' + esc(d.title) + '" autocomplete="off" enterkeyhint="done">' +
+    recEditor(d.rec) +
+    '<div class="field-row"><label class="field"><span>Sonraki tarih</span><input type="date" class="input" name="next" value="' + (d.next || '') + '"></label><label class="field"><span>Son yapılma</span><input type="date" class="input" name="last" value="' + (d.last || '') + '"></label></div>' +
+    '<label class="field"><span>Maliyet (isteğe bağlı)</span><input type="number" inputmode="decimal" step="any" class="input" name="cost" placeholder="₺" value="' + (d.cost == null ? '' : d.cost) + '"></label>' +
+    '<div class="field"><span>Not</span><textarea class="input" name="notes" rows="2" placeholder="Servis, parça, detay…">' + esc(d.notes || '') + '</textarea></div>' +
+    (Cal.on() ? '<div class="set-row" style="margin-top:8px"><div class="grow"><div>Google Takvim’e yaz</div><div class="sub">Sonraki tarih takviminde tüm gün etkinlik olarak görünür</div></div><button type="button" class="switch ' + (d.toCal ? 'on' : '') + '" data-act="switch" data-name="toCal" aria-label="Aç/kapat"></button></div>' : '') +
+    (hist.length ? '<div class="field"><span>Geçmiş</span><div class="rt-hist">' + hist.map(x => '<div><span>' + fmtShort(x.d) + '</span>' + (x.cost != null ? '<b>' + fmtNum(x.cost) + ' ₺</b>' : '') + '</div>').join('') + '</div></div>' : '') +
+    '</div><div class="sheet-foot">' + (isNew ? '' : '<button class="btn danger-ghost" data-act="rt-delete">' + icon('trash') + ' Sil</button>') + '<button class="btn primary" data-act="rt-save">Kaydet</button></div>');
+  if (isNew) setTimeout(() => { const i = $('#sheetRoot [name=title]'); if (i) i.focus(); }, 80);
+}
+async function saveRoutine() {
+  const d = S.draft; const title = fval('title').trim();
+  if (!title) { $('#sheetRoot [name=title]').classList.add('err'); return; }
+  const base = S.items.get(d.id) || d;
+  const rec = readRec(); const last = fval('last') || ''; let next = fval('next');
+  if (!next) next = last ? nextOcc(last, rec) : today();
+  const cost = parseFloat(fval('cost'));
+  const sw = $('#sheetRoot .switch[data-name=toCal]');
+  Object.assign(base, { title, rec, next, last, cost: isNaN(cost) ? null : cost, notes: fval('notes').trim(), toCal: sw ? sw.classList.contains('on') : !!base.toCal });
+  closeSheet(); await save(base);
+  if (base.toCal) Cal.upsertRoutine(base); else if (base.gev && Cal.ready()) { const g = base.gev; base.gev = null; Cal.del(g.cal, g.id).catch(() => {}); save(base, { silent: true }); }
+}
+async function routineDone(id) {
+  const r = S.items.get(id); if (!r) return;
+  const before = { next: r.next, last: r.last, hist: (r.hist || []).slice() };
+  const t0 = today();
+  r.hist = (r.hist || []).concat([{ d: t0, cost: r.cost != null ? r.cost : null }]);
+  r.last = t0; r.next = routineNextAfterDone(r, t0);
+  await save(r);
+  Cal.upsertRoutine(r);
+  toast('Yapıldı · sonraki: ' + relDay(r.next), { label: 'Geri al', fn: async () => { Object.assign(r, before); await save(r); Cal.upsertRoutine(r); } });
 }
 
 /* ----- Alışkanlık & hedef ----- */
@@ -1343,8 +1558,8 @@ function inkBind() {
 }
 
 /* ----- Ayarlar ----- */
-const CARD_LABELS = { tasks: 'Bugünün görevleri', events: 'Bugünkü etkinlikler', habits: 'Alışkanlıklar', goals: 'Hedefler', pinned: 'Sabitlenen notlar' };
-const MOD_LABELS = { tasks: 'Görevler', calendar: 'Takvim', habits: 'Alışkanlıklar & hedefler' };
+const CARD_LABELS = { tasks: 'Bugünün görevleri', events: 'Bugünkü etkinlikler', routines: 'Yaklaşan rutinler', habits: 'Alışkanlıklar', goals: 'Hedefler', pinned: 'Sabitlenen notlar' };
+const MOD_LABELS = { tasks: 'Görevler', calendar: 'Takvim', routines: 'Rutinler', habits: 'Alışkanlıklar & hedefler' };
 function orderRows(listKey, arr, labels) {
   return arr.map((m, i) => '<div class="set-row"><div class="grow">' + (String(m.k).startsWith('c:') ? '<span class="u">' + esc((cmod(m.k.slice(2)) || {}).name || '') + '</span>' : labels[m.k]) + '</div><div class="order-btns"><button class="icon-btn" data-act="list-move" data-list="' + listKey + '" data-i="' + i + '" data-dir="-1" aria-label="Yukarı" ' + (i === 0 ? 'disabled' : '') + '>' + icon('up') + '</button><button class="icon-btn" data-act="list-move" data-list="' + listKey + '" data-i="' + i + '" data-dir="1" aria-label="Aşağı" ' + (i === arr.length - 1 ? 'disabled' : '') + '>' + icon('down') + '</button></div><button class="switch ' + (m.on ? 'on' : '') + '" data-act="list-toggle" data-list="' + listKey + '" data-i="' + i + '" aria-label="Aç/kapat"></button></div>').join('');
 }
@@ -1358,7 +1573,9 @@ function viewSettings() {
     '<div class="set-row"><div class="grow"><div>Adın</div><div class="sub">Bugün ekranında selamlamak için</div></div><input class="input slim" id="setName" style="max-width:170px" placeholder="Adın" value="' + esc(st.name) + '" autocomplete="off"></div>';
   const titles = '<div class="set-sub">Başlık stili</div><div class="pad-x"><div class="seg"><button class="' + (st.titleStyle !== 'ironic' ? 'on' : '') + '" data-act="look" data-k="titleStyle" data-v="classic">Klasik</button><button class="' + (st.titleStyle === 'ironic' ? 'on' : '') + '" data-act="look" data-k="titleStyle" data-v="ironic">İronik</button></div></div>' +
     '<div class="set-sub">Başlıkları yeniden adlandır</div><p class="muted sm" style="margin:0 0 6px">Boş bırakırsan yukarıdaki stile göre yazılır.</p>' +
-    Object.keys(TITLES).map(k => '<div class="set-row"><div class="grow u">' + esc(TITLES[k][isEn() ? 'en' : 'tr'][0]) + '</div><input class="input slim" data-title-key="' + k + '" style="max-width:55%" placeholder="' + esc(T(k) === (st.titles || {})[k] ? TITLES[k][isEn() ? 'en' : 'tr'][st.titleStyle === 'ironic' ? 1 : 0] : T(k)) + '" value="' + esc((st.titles || {})[k] || '') + '" autocomplete="off"></div>').join('') +
+    Object.keys(TITLES).map(k => { const L = isEn() ? 'en' : 'tr'; const cur = (st.titles || {})[k] || ''; const sug = (TITLE_SUGGEST[k] || {})[L] || [];
+      return '<div class="title-row"><div class="tr-head"><span class="u">' + esc(TITLES[k][L][0]) + '</span><input class="input slim" data-title-key="' + k + '" placeholder="' + esc(TITLES[k][L][st.titleStyle === 'ironic' ? 1 : 0]) + '" value="' + esc(cur) + '" autocomplete="off"></div>' +
+        '<div class="chips tr-sugs">' + sug.map(v => '<button class="chip sm u ' + (cur === v ? 'on' : '') + '" data-act="title-pick" data-k="' + k + '" data-v="' + esc(v) + '">' + esc(v) + '</button>').join('') + (cur ? '<button class="chip sm" data-act="title-pick" data-k="' + k + '" data-v="">Varsayılan</button>' : '') + '</div></div>'; }).join('') +
     '<div class="set-sub">Kendi bölümlerin</div>' +
     (customMods().length ? customMods().map(m => '<div class="set-row cmod-row"><div class="grow"><input class="input slim" data-cmod-name="' + m.id + '" value="' + esc(m.name) + '" autocomplete="off"><div class="sub"><span>' + CTYPES[m.type][0] + '</span> · <span>' + (m.home === 'info' ? 'Bilgi sekmesinde' : 'Planla sekmesinde') + '</span></div></div><button class="icon-btn" data-act="cmod-home" data-id="' + m.id + '" aria-label="Sekmeyi değiştir">' + icon(m.home === 'info' ? 'info' : 'plan') + '</button><button class="icon-btn" data-act="cmod-del" data-id="' + m.id + '" aria-label="Sil">' + icon('trash') + '</button></div>').join('') : '<p class="muted sm" style="margin:4px 0 8px">Henüz yok. Liste, not defteri, sayaç ya da kayıt defteri olarak kendi bölümünü ekle.</p>') +
     '<button class="btn block" data-act="cmod-new">' + icon('plus') + ' Yeni bölüm ekle</button>';
@@ -1367,7 +1584,7 @@ function viewSettings() {
     '<div class="set-row"><div class="grow"><div>Yeni kalem notu kâğıdı</div></div><div class="seg" style="max-width:240px">' + PAPERS.map(p => '<button class="' + (st.paper === p ? 'on' : '') + '" data-act="set-paper" data-k="' + p + '">' + { blank: 'Boş', lines: 'Çizgili', grid: 'Kareli' }[p] + '</button>').join('') + '</div></div>' +
     '<div class="set-sub">Etiketler</div><div class="set-row click" data-act="manage-tags" data-scope="task">' + icon('tag') + '<div class="grow">Görev etiketleri</div><span class="muted sm">' + tagsOf('task').length + '</span>' + icon('right') + '</div><div class="set-row click" data-act="manage-tags" data-scope="note">' + icon('tag') + '<div class="grow">Not etiketleri</div><span class="muted sm">' + tagsOf('note').length + '</span>' + icon('right') + '</div>';
   const data = '<div class="set-sub">Senkron</div><div class="set-row click" data-act="drive-open">' + icon('cloud') + '<div class="grow"><div>Google Drive</div><div class="sub" id="driveStatus">' + driveStatusHtml() + '</div></div>' + icon('right') + '</div>' +
-    '<div class="set-row click" data-act="sync-open">' + icon('sync') + '<div class="grow"><div>Supabase (gelişmiş)</div><div class="sub" id="syncStatus">' + syncStatusHtml() + '</div></div>' + icon('right') + '</div>' +
+    '<div class="set-row click" data-act="cal-open">' + icon('event') + '<div class="grow"><div>Google Takvim</div><div class="sub" id="calStatus">' + calStatusHtml() + '</div></div>' + icon('right') + '</div>' +
     '<div class="set-sub">Yedek</div><div class="set-row click" data-act="share-backup">' + icon('upload') + '<div class="grow"><div>Yedeği gönder / kaydet</div><div class="sub" id="lastBackup">' + lastBackupText() + '</div></div></div>' +
     '<div class="set-row click" data-act="snapshots">' + icon('clock') + '<div class="grow"><div>Otomatik yedekler</div><div class="sub">Her gün kendiliğinden alınır, son 14 gün saklanır</div></div>' + icon('right') + '</div>' +
     '<div class="set-row click" data-act="export">' + icon('download') + '<div class="grow"><div>Yedeği dosya olarak indir</div></div></div>' +
@@ -1406,43 +1623,6 @@ function manageTags(scope) {
     (tags.length ? '<div class="set-group">' + tags.map(t => '<div class="set-row"><input class="input slim grow" data-tag-name="' + t.id + '" value="' + esc(t.name) + '" autocomplete="off"><button class="icon-btn" data-act="tag-delete" data-id="' + t.id + '" data-scope="' + scope + '" aria-label="Sil">' + icon('trash') + '</button></div>').join('') + '</div>' : '<div class="empty">Henüz etiket yok.</div>') +
     '<form class="quick-add" data-form="new-tag" data-scope="' + scope + '" style="margin-top:14px"><input class="input" name="q" placeholder="Yeni etiket adı" autocomplete="off" enterkeyhint="done"><button class="icon-btn" type="submit" aria-label="Ekle">' + icon('plus') + '</button></form>' +
     '<div class="sheet-msg">İsmi değiştirmek için üzerine yazman yeterli.</div></div>', { onClose: () => setTimeout(render, 0) });
-}
-function openSync() {
-  const c = Sync.cfg || {};
-  let body;
-  if (Sync.enabled()) {
-    body = '<div class="set-group"><div class="set-row"><div class="grow"><div>' + esc(c.email || '') + '</div><div class="sub" id="syncStatus">' + syncStatusHtml() + '</div></div></div></div>' +
-      '<p class="muted sm" style="margin-top:14px">Her cihazda aynı e-posta ve şifreyle giriş yaptığında veriler otomatik eşitlenir. İnternet yokken yaptığın değişiklikler bağlantı gelince gönderilir.</p>' +
-      '<button class="btn primary block" data-act="sync-now">' + icon('sync') + ' Şimdi eşitle</button><button class="btn block" data-act="sync-logout">Bu cihazda senkronu kapat</button>';
-  } else {
-    body = '<ol class="steps"><li><b>supabase.com</b>’da ücretsiz hesap aç ve <b>New project</b> ile bir proje oluştur.</li><li>Projede <b>SQL Editor</b>’ü aç, aşağıdaki kodu yapıştırıp <b>Run</b>’a bas.</li><li><b>Project Settings → API</b> (Data API) sayfasından <b>Project URL</b> ile <b>publishable / anon key</b>’i kopyalayıp aşağıya yapıştır.</li><li>İlk cihazda <b>Hesap oluştur</b>, diğer cihazlarda aynı bilgilerle <b>Giriş yap</b>.</li></ol>' +
-      '<button class="btn block" data-act="copy-sql">Kurulum kodunu kopyala</button><pre class="sql">' + esc(SETUP_SQL) + '</pre>' +
-      '<label class="field"><span>Project URL</span><input class="input" name="sUrl" placeholder="https://xxxx.supabase.co" value="' + esc(c.url || '') + '" autocomplete="off" inputmode="url"></label>' +
-      '<label class="field"><span>Publishable / anon key</span><input class="input" name="sKey" placeholder="sb_publishable_… veya eyJ…" value="' + esc(c.key || '') + '" autocomplete="off"></label>' +
-      '<label class="field"><span>E-posta</span><input class="input" name="sEmail" type="email" value="' + esc(c.email || '') + '" autocomplete="email"></label>' +
-      '<label class="field"><span>Şifre (en az 6 karakter)</span><input class="input" name="sPass" type="password" autocomplete="current-password"></label>' +
-      '<div class="sheet-msg" id="syncMsg"></div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px"><button class="btn" data-act="sync-auth" data-k="signup">Hesap oluştur</button><button class="btn primary" data-act="sync-auth" data-k="login">Giriş yap</button></div>';
-  }
-  openSheet(sheetHead('Senkron') + '<div class="sheet-body">' + body + '</div>', { onClose: () => setTimeout(render, 0) });
-}
-async function syncAuth(kind) {
-  const msg = $('#syncMsg'); const say = (t, cls) => { if (msg) { msg.textContent = t; msg.className = 'sheet-msg ' + (cls || ''); } };
-  const url = fval('sUrl').trim().replace(/\/+$/, ''), key = fval('sKey').trim(), email = fval('sEmail').trim(), pass = fval('sPass');
-  if (!/^https:\/\/.+/.test(url)) return say('Project URL https:// ile başlamalı.', 'err');
-  if (!key) return say('Anahtarı (key) yapıştır.', 'err');
-  if (!email || pass.length < 6) return say('E-posta ve en az 6 karakterli şifre gir.', 'err');
-  if (!navigator.onLine) return say('Kurulum için internet gerekli.', 'err');
-  Sync.cfg = Object.assign({}, Sync.cfg || {}, { url, key, email });
-  say('Bağlanılıyor…');
-  try {
-    const r = await Sync.auth(kind, email, pass);
-    if (r === 'confirm') { await Sync.saveCfg(); return say('Onay e-postası gönderildi. E-postadaki linke tıkla (açılan sayfa hata verse de sorun değil), sonra buraya dönüp “Giriş yap”a bas.', 'ok'); }
-    say('Bağlandı, eşitleniyor…', 'ok');
-    await Sync.run();
-    toast('Senkron açıldı');
-    openSync();
-  } catch (e) { say(e.message === 'Failed to fetch' ? 'Sunucuya ulaşılamadı. URL’yi ve internet bağlantını kontrol et.' : e.message, 'err'); }
 }
 /* ----- Yedekleme ----- */
 function backupData() {
@@ -1499,13 +1679,13 @@ async function restoreSnapshot(id) {
   if (!ask('Veriler bu yedekteki hâline dönecek. Şu anki hâlin de ayrıca yedeklenecek. Devam edilsin mi?')) return;
   await autoSnapshot(true, 'Geri yüklemeden önce');
   const ids = new Set(data.items.map(i => i.id)); const now = Date.now(); const toPut = [];
-  data.items.forEach(it => { const o = Object.assign({}, it, { updated: now, deleted: false, _dirty: 1, _dd: 1 }); S.items.set(o.id, o); toPut.push(o); });
-  S.items.forEach(it => { if (!ids.has(it.id) && !it.deleted && it.type !== 'settings') { it.deleted = true; it.updated = now; it._dirty = 1; it._dd = 1; toPut.push(it); } });
-  await DB.putMany(toPut); thumbCache.clear(); Sync.schedule(500);
+  data.items.forEach(it => { const o = Object.assign({}, it, { updated: now, deleted: false, _dd: 1 }); S.items.set(o.id, o); toPut.push(o); });
+  S.items.forEach(it => { if (!ids.has(it.id) && !it.deleted && it.type !== 'settings') { it.deleted = true; it.updated = now; it._dd = 1; toPut.push(it); } });
+  await DB.putMany(toPut); thumbCache.clear(); Drive.schedule(500);
   closeSheet(); render(); toast('Yedek geri yüklendi');
 }
 function backupReminder() {
-  if (Sync.enabled() || Drive.on()) return;
+  if (Drive.on()) return;
   const last = +lsGet('pusula.lastExport', '0'); const shown = lsGet('pusula.remindDay', '');
   const count = Array.from(S.items.values()).filter(i => !i.deleted && i.type !== 'settings').length;
   if (count < 5 || shown === today() || (last && Date.now() - last < 7 * 86400000)) return;
@@ -1518,8 +1698,8 @@ async function importData(file) {
     const data = JSON.parse(await file.text());
     if (data.app !== 'PUSULA' || !Array.isArray(data.items)) throw new Error('Bu bir PUSULA yedeği değil');
     const toPut = [];
-    data.items.forEach(it => { if (!it || !it.id || !it.type) return; const loc = S.items.get(it.id); if (!loc || (it.updated || 0) > (loc.updated || 0)) { it._dirty = 1; it._dd = 1; S.items.set(it.id, it); toPut.push(it); } });
-    await DB.putMany(toPut); thumbCache.clear(); render(); Sync.schedule(500);
+    data.items.forEach(it => { if (!it || !it.id || !it.type) return; const loc = S.items.get(it.id); if (!loc || (it.updated || 0) > (loc.updated || 0)) { it._dd = 1; S.items.set(it.id, it); toPut.push(it); } });
+    await DB.putMany(toPut); thumbCache.clear(); render(); Drive.schedule(500);
     toast(toPut.length + ' kayıt içe aktarıldı');
   } catch (e) { toast('İçe aktarılamadı: ' + e.message); }
 }
@@ -1527,17 +1707,19 @@ async function importData(file) {
 /* ===================== Eylemler ===================== */
 const ACTIONS = {
   'tab': el => { S.tab = el.dataset.k; window.scrollTo(0, 0); render(); },
+  'open-settings': () => { S.prevTab = S.tab; S.tab = 'settings'; window.scrollTo(0, 0); render(); },
+  'close-settings': () => { S.tab = S.prevTab && S.prevTab !== 'settings' ? S.prevTab : 'today'; window.scrollTo(0, 0); render(); },
   'plan-sub': el => { S.planSub = el.dataset.k; window.scrollTo(0, 0); render(); },
   'info-sub': el => { S.infoSub = el.dataset.k; window.scrollTo(0, 0); render(); },
   'go': el => { const k = el.dataset.k; if (k.startsWith('c:')) { const m = cmod(k.slice(2)); if (!m) return; if (m.home === 'info') { S.tab = 'info'; S.infoSub = k; } else { S.tab = 'plan'; S.planSub = k; } window.scrollTo(0, 0); return render(); } if (k === 'notes') { S.tab = 'info'; S.infoSub = 'notes'; } else { S.tab = 'plan'; S.planSub = k; if (k === 'calendar') { S.calSel = today(); S.calMonth = null; } if (k === 'tasks') S.taskFilter = 'open'; } window.scrollTo(0, 0); render(); },
   'fab': () => {
     const sub = S.tab === 'plan' ? S.planSub : S.tab === 'info' ? S.infoSub : '';
     if (sub && sub.startsWith('c:')) return editCItem(null, sub.slice(2));
-    if (S.tab === 'plan') { if (S.planSub === 'tasks') return editTask(); if (S.planSub === 'calendar') return editEvent(null, S.calSel); return openQuick(['habit', 'goal']); }
+    if (S.tab === 'plan') { if (S.planSub === 'routines') return editRoutine(); if (S.planSub === 'tasks') return editTask(); if (S.planSub === 'calendar') return editEvent(null, S.calSel); return openQuick(['habit', 'goal']); }
     if (S.tab === 'info') return openQuick(['note', 'ink']);
     openQuick();
   },
-  'quick': el => { const k = el.dataset.k; ({ task: () => editTask(), event: () => editEvent(null, S.tab === 'plan' ? S.calSel : today()), note: () => openNote(), ink: () => openInk(), habit: () => editHabit(), goal: () => editGoal() })[k](); },
+  'quick': el => { const k = el.dataset.k; ({ task: () => editTask(), event: () => editEvent(null, S.tab === 'plan' ? S.calSel : today()), note: () => openNote(), ink: () => openInk(), habit: () => editHabit(), goal: () => editGoal(), routine: () => editRoutine() })[k](); },
   'close-sheet': () => closeSheet(),
   'toast-action': () => { const fn = S.toastAction; S.toastAction = null; $('#toast').classList.remove('show'); if (fn) fn(); },
   'seg-pick': el => { $$('button', el.parentNode).forEach(b => b.classList.toggle('on', b === el)); },
@@ -1560,7 +1742,16 @@ const ACTIONS = {
   'add-event': () => editEvent(null, S.calSel),
   'edit-event': el => { const e = S.items.get(el.dataset.id); if (e) editEvent(e); },
   'save-event': () => saveEvent(),
-  'delete-event': async () => { const it = S.items.get(S.draft.id); if (!it) return closeSheet(); closeSheet(); await remove(it); toast('Etkinlik silindi', { label: 'Geri al', fn: async () => { it.deleted = false; await save(it); } }); },
+  'gev-edit': el => { const e = Cal.findEvent(el.dataset.gid); if (e) editEvent(null, null, e); },
+  'delete-event': async () => {
+    const d = S.draft;
+    if (d && d.gid) {
+      if (!ask('Bu etkinlik Google Takvim’den silinsin mi?')) return;
+      if (!Drive.tokenOk(GCAL_SCOPE)) { try { await Drive.requestToken(); } catch (e) { return toast(e.message); } }
+      try { await Cal.del(d.cal, d.gid); closeSheet(); await Cal.fetchMonth((S.calMonth || today().slice(0, 7))); render(); toast('Google Takvim’den silindi'); } catch (e) { toast(e.message); }
+      return;
+    }
+    const it = S.items.get(S.draft.id); if (!it) return closeSheet(); closeSheet(); await remove(it); toast('Etkinlik silindi', { label: 'Geri al', fn: async () => { it.deleted = false; await save(it); } }); },
   // alışkanlık & hedef
   'habit-toggle': el => toggleHabit(el.dataset.id, el.dataset.d),
   'new-habit': () => editHabit(), 'new-goal': () => editGoal(),
@@ -1600,17 +1791,24 @@ const ACTIONS = {
   'notes-toggle': () => { const st = settings(); st.notes = !st.notes; saveSettings(); },
   'manage-tags': el => manageTags(el.dataset.scope),
   'tag-delete': async el => { const t = S.items.get(el.dataset.id); if (!t || !ask('“' + t.name + '” etiketi silinsin mi? (Notlar ve görevler silinmez)')) return; await remove(t, { silent: true }); manageTags(el.dataset.scope); },
-  'sync-open': () => openSync(),
-  'sync-auth': el => syncAuth(el.dataset.k),
-  'sync-now': () => { if (!navigator.onLine) return toast('İnternet yok, bağlantı gelince eşitlenecek'); Drive.run(true); Sync.run(); },
+  'sync-now': () => { if (!navigator.onLine) return toast('İnternet yok, bağlantı gelince eşitlenecek'); gSync(true); },
   'drive-open': () => openDrive(),
   'drive-connect': () => driveConnect(),
-  'drive-now': () => { if (!navigator.onLine) return toast('İnternet yok, bağlantı gelince eşitlenecek'); Drive.run(true); },
+  'drive-now': () => { if (!navigator.onLine) return toast('İnternet yok, bağlantı gelince eşitlenecek'); gSync(true); },
   'drive-off': async () => { if (!ask('Bu cihazda Google Drive senkronu kapatılsın mı? Veriler cihazda ve Drive’da kalır.')) return; Drive.cfg.connected = false; Drive.token = null; Drive.exp = 0; lsSet('pusula.gtok', 'null'); await Drive.saveCfg(); Drive.setStatus('off'); openDrive(); },
   'copy-origin': async () => { try { await navigator.clipboard.writeText(location.origin); toast('Adres kopyalandı'); } catch (e) { toast(location.origin); } },
-  'sync-logout': async () => { if (!ask('Bu cihazda senkron kapatılsın mı? Veriler cihazda kalır.')) return; Sync.cfg = { url: Sync.cfg.url, key: Sync.cfg.key, email: Sync.cfg.email }; await Sync.saveCfg(); Sync.setStatus('off'); openSync(); },
-  'copy-sql': async () => { try { await navigator.clipboard.writeText(SETUP_SQL); toast('Kod kopyalandı'); } catch (e) { toast('Kopyalanamadı, kutudan seçip kopyala'); } },
   'export': () => exportData(),
+  'new-routine': () => editRoutine(),
+  'rt-edit': el => { const r = S.items.get(el.dataset.id); if (r) editRoutine(r); },
+  'rt-done': el => routineDone(el.dataset.id),
+  'rt-save': () => saveRoutine(),
+  'rt-delete': async () => { const it = S.items.get(S.draft.id); if (!it) return closeSheet(); if (!ask('“' + it.title + '” rutini silinsin mi?')) return; closeSheet(); if (it.gev && Cal.ready()) Cal.del(it.gev.cal, it.gev.id).catch(() => {}); await remove(it); },
+  'cal-open': () => openCal(),
+  'cal-connect': () => calConnect(),
+  'cal-toggle': async el => { const c = Cal.calById(el.dataset.id); if (!c) return; c.on = !c.on; el.classList.toggle('on', c.on); await Cal.saveCfg(); Cal.fetched = {}; if (Cal.ready()) Cal.sync(); },
+  'cal-routines': async el => { Cal.cfg.routines = Cal.cfg.routines === false; el.classList.toggle('on', Cal.cfg.routines !== false); await Cal.saveCfg(); },
+  'cal-off': async () => { if (!ask('Bu cihazda Google Takvim bağlantısı kesilsin mi? Google Takvim’deki etkinliklerin silinmez.')) return; Cal.cfg.connected = false; Cal.byDate = {}; Cal.persist(); await Cal.saveCfg(); Cal.setStatus('off'); openCal(); },
+  'title-pick': el => { const st = settings(); st.titles = st.titles || {}; if (el.dataset.v) st.titles[el.dataset.k] = el.dataset.v; else delete st.titles[el.dataset.k]; saveSettings(); },
   'citem-toggle': async el => { const i = S.items.get(el.dataset.id); if (!i) return; i.done = !i.done; i.doneAt = i.done ? Date.now() : null; await save(i); },
   'citem-step': async el => { const i = S.items.get(el.dataset.id); if (!i) return; i.value = r2((Number(i.value) || 0) + Number(el.dataset.dir)); i.at = Date.now(); await save(i); },
   'citem-edit': el => { const i = S.items.get(el.dataset.id); if (i) editCItem(i); },
@@ -1634,6 +1832,7 @@ function openQuick(only) {
   if (planOn('tasks')) opts.push(['task', 'Görev', 'task']);
   if (planOn('calendar')) opts.push(['event', 'Etkinlik', 'event']);
   if (st.notes) { opts.push(['note', 'Not', 'note']); opts.push(['ink', 'Kalem notu', 'pen']); }
+  if (planOn('routines')) opts.push(['routine', 'Rutin', 'repeat']);
   if (planOn('habits')) { opts.push(['habit', 'Alışkanlık', 'habit']); opts.push(['goal', 'Hedef', 'goal']); }
   const shown = only ? opts.filter(o => only.includes(o[0])) : opts;
   if (!shown.length) return toast('Ayarlar’dan bir modül aç');
@@ -1682,6 +1881,8 @@ document.addEventListener('change', e => {
   if (el.id === 'fsRange') { settings().fs = el.value / 100; saveSettings(); return; }
   if (el.dataset && el.dataset.titleKey) { const st = settings(); st.titles = st.titles || {}; const v = el.value.trim(); if (v) st.titles[el.dataset.titleKey] = v; else delete st.titles[el.dataset.titleKey]; saveSettings(); return; }
   if (el.dataset && el.dataset.cmodName) { const m = cmod(el.dataset.cmodName); const v = el.value.trim(); if (m && v) { m.name = v; saveSettings(); } return; }
+  if (el.id === 'calDef') { Cal.cfg.def = el.value; Cal.saveCfg(); return; }
+  if (el.name === 'recUnit') { const u = el.value; const w = $('#sheetRoot .rec-week'), m = $('#sheetRoot .rec-month'); if (w) w.classList.toggle('hide', u !== 'week'); if (m) m.classList.toggle('hide', u !== 'month'); return; }
   if (el.id === 'setName') { settings().name = el.value.trim(); saveSettings(); }
   else if (el.dataset && el.dataset.tagName) { const t = S.items.get(el.dataset.tagName); const v = el.value.trim().replace(/^#/, ''); if (t && v) { t.name = v; save(t, { silent: true }); } }
   else if (el.id === 'importFile') { importData(el.files[0]); el.value = ''; }
@@ -1737,24 +1938,24 @@ async function init() {
   catch (e) { console.error(e); toast('Cihaz depolaması açılamadı'); }
   settings();
   startTranslator();
-  await Sync.load();
   await Drive.load();
+  await Cal.load();
+  DB.delMeta('sync').catch(() => {});
   render();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   registerSW();
-  Sync.run();
   setTimeout(() => autoSnapshot(), 3000);
   backupReminder();
-  window.addEventListener('online', () => { Sync.run(); Drive.run(false); });
-  window.addEventListener('offline', () => Sync.enabled() && Sync.setStatus('offline'));
+  window.addEventListener('online', () => gSync(false));
+  window.addEventListener('offline', () => Drive.on() && Drive.setStatus('offline'));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') { if (S.ink) inkPersist(); if (S.noteEd) noteSave(); return; }
-    Sync.run(); Drive.run(false);
+    gSync(false);
     if (navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {});
     if (S.lastDay !== today()) { autoSnapshot(); S.lastDay = today(); S.calSel = today(); S.calMonth = null; if (!S.ink && !S.noteEd) render(); }
   });
-  setInterval(() => { if (document.visibilityState === 'visible') { Sync.run(); Drive.run(false); } }, 180000);
-  if (Drive.on()) { if (navigator.onLine) Drive.loadGis().catch(() => {}); Drive.run(false); }
+  setInterval(() => { if (document.visibilityState === 'visible') gSync(false); }, 180000);
+  if (Drive.on() || Cal.on()) { if (navigator.onLine) Drive.loadGis().catch(() => {}); gSync(false); }
   if (window.matchMedia) { const mq = matchMedia('(prefers-color-scheme: light)'); const fn = () => { if (settings().theme === 'system') { thumbCache.clear(); render(); } }; if (mq.addEventListener) mq.addEventListener('change', fn); }
 }
 init();
