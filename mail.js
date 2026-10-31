@@ -80,7 +80,7 @@ function gmLinkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href=
 
 /* ----- Gmail modülü ----- */
 const Mail = {
-  cfg: null, important: 0, unread: 0, top: [], msgs: [], next: null, q: '', cat: 'all', loading: false, err: '', fetchedAt: 0, fetchedKey: '',
+  cfg: null, selMode: false, sel: new Set(), important: 0, unread: 0, top: [], msgs: [], next: null, q: '', cat: 'all', loading: false, err: '', fetchedAt: 0, fetchedKey: '',
   subs: null, subsBusy: false, subsProg: '', cur: null,
   async load() {
     try { this.cfg = (await DB.getMeta('gmail')) || null; } catch (e) { this.cfg = null; }
@@ -165,17 +165,44 @@ function viewInbox() {
   if (gopt('search')) h += '<form class="quick-add mail-search" id="gmSearch"><input class="input" name="q" placeholder="Mailde ara (gönderen, konu, kelime)…" value="' + esc(Mail.q) + '" autocomplete="off" enterkeyhint="search">' + (Mail.q ? '<button class="icon-btn" type="button" data-act="gm-search-clear" aria-label="Temizle">' + icon('x') + '</button>' : '') + '<button class="icon-btn" type="submit" aria-label="Ara">' + icon('search') + '</button></form>';
   if (gopt('cats')) h += '<div class="chips mail-cats">' + GM_CATS.map(c => '<button class="chip sm ' + (Mail.cat === c[0] ? 'on' : '') + '" data-act="gm-cat" data-k="' + c[0] + '">' + c[1] + '</button>').join('') + '</div>';
   if (gopt('promo') && Mail.cat === 'promotions') h += '<div class="mail-bulk"><button class="btn sm-btn" data-act="gm-promo" data-k="read">' + icon('check', 'sm') + ' <span>Hepsini okundu yap</span></button><button class="btn sm-btn" data-act="gm-promo" data-k="archive">' + icon('archive', 'sm') + ' <span>Hepsini arşivle</span></button></div>';
-  h += '<div class="mail-tools"><span class="muted sm">' + (Mail.unread ? Mail.unread + ' <span>okunmamış</span>' : '') + '</span><button class="icon-btn ' + (Mail.loading ? 'spin' : '') + '" data-act="gm-refresh" aria-label="Yenile">' + icon('sync') + '</button></div>';
+  h += '<div class="mail-tools"><span class="muted sm">' + (Mail.unread ? Mail.unread + ' <span>okunmamış</span>' : '') + '</span><span class="mt-right">' + (Mail.msgs.length ? '<button class="link" data-act="gm-select">' + tr(Mail.selMode ? 'Seçimi bitir' : 'Seç') + '</button>' : '') + '<button class="icon-btn ' + (Mail.loading ? 'spin' : '') + '" data-act="gm-refresh" aria-label="Yenile">' + icon('sync') + '</button></span></div>';
   if (Mail.err) h += '<div class="sheet-msg err">' + esc(Mail.err) + '</div>';
   if (!Mail.msgs.length) h += '<div class="empty">' + (Mail.loading ? 'Yükleniyor…' : Mail.q ? 'Sonuç yok.' : 'Gelen kutusu boş. Tebrikler!') + '</div>';
-  else h += '<div class="card mail-list">' + Mail.msgs.map(mailRow).join('') + '</div>' + (Mail.next ? '<button class="btn block" data-act="gm-more">' + (Mail.loading ? 'Yükleniyor…' : 'Daha fazla') + '</button>' : '');
+  else h += '<div class="card mail-list ' + (Mail.selMode ? 'selecting' : '') + '">' + Mail.msgs.map(mailRow).join('') + '</div>' + (Mail.next ? '<button class="btn block" data-act="gm-more">' + (Mail.loading ? 'Yükleniyor…' : 'Daha fazla') + '</button>' : '');
+  if (Mail.selMode) h += selBar();
   return h;
 }
 function mailRow(m) {
-  const un = m.labels.includes('UNREAD'), st = m.labels.includes('STARRED');
-  return '<div class="mrow ' + (un ? 'unread' : '') + '"><button class="mrow-main" data-act="gm-open" data-id="' + m.id + '"><div class="mrow-top"><span class="mrow-from u">' + esc(m.from.name || m.from.email) + '</span><span class="mrow-date">' + gmWhen(m.date) + '</span></div><div class="mrow-subj u">' + esc(m.subject || tr('(konusuz)')) + '</div><div class="mrow-snip u">' + esc(m.snippet) + '</div></button>' +
+  const un = m.labels.includes('UNREAD'), st = m.labels.includes('STARRED'), sel = Mail.selMode && Mail.sel.has(m.id);
+  return '<div class="mrow ' + (un ? 'unread ' : '') + (sel ? 'picked' : '') + '">' + (Mail.selMode ? '<button class="mpick" data-act="gm-pick" data-id="' + m.id + '" aria-label="Seç">' + (sel ? icon('check', 'sm') : '') + '</button>' : '') + '<button class="mrow-main" data-act="' + (Mail.selMode ? 'gm-pick' : 'gm-open') + '" data-id="' + m.id + '"><div class="mrow-top"><span class="mrow-from u">' + esc(m.from.name || m.from.email) + '</span><span class="mrow-date">' + gmWhen(m.date) + '</span></div><div class="mrow-subj u">' + esc(m.subject || tr('(konusuz)')) + '</div><div class="mrow-snip u">' + esc(m.snippet) + '</div></button>' +
     '<div class="mrow-acts"><button class="icon-btn ' + (st ? 'on star' : '') + '" data-act="gm-star" data-id="' + m.id + '" aria-label="Yıldız">' + icon('star', 'sm') + '</button><button class="icon-btn" data-act="gm-archive" data-id="' + m.id + '" aria-label="Arşivle">' + icon('archive', 'sm') + '</button></div></div>';
 }
+/* ----- toplu seçim ----- */
+function selBar() {
+  const n = Mail.sel.size, all = n && n === Mail.msgs.length;
+  const b = (k, ic, label) => '<button class="sb-act" data-act="gm-bulk" data-k="' + k + '" ' + (n ? '' : 'disabled') + '>' + icon(ic, 'sm') + '<span>' + label + '</span></button>';
+  return '<div class="sel-bar"><div class="sb-top"><b>' + n + '</b> <span>seçili</span><button class="link" data-act="gm-pick-all">' + tr(all ? 'Hiçbirini seçme' : 'Hepsini seç') + '</button><button class="icon-btn" data-act="gm-select" aria-label="Kapat">' + icon('x', 'sm') + '</button></div>' +
+    '<div class="sb-acts">' + b('read', 'check', 'Okundu') + b('unread', 'unread', 'Okunmadı') + b('archive', 'archive', 'Arşivle') + b('trash', 'trash', 'Çöpe at') + b('star', 'star', 'Yıldızla') + '</div></div>';
+}
+const GM_BULK = { read: [[], ['UNREAD']], unread: [['UNREAD'], []], archive: [[], ['INBOX']], trash: [['TRASH'], ['INBOX']], star: [['STARRED'], []] };
+async function gmBulk(k) {
+  const ids = [...Mail.sel]; if (!ids.length) return;
+  const [add, rem] = GM_BULK[k];
+  try {
+    await Mail.batch(ids, add, rem);
+    if (k === 'archive' || k === 'trash') { const keep = Mail.msgs.filter(m => ids.includes(m.id)); ids.forEach(gmDropLocal);
+      const msg = Lx(ids.length + ' mail ' + (k === 'archive' ? 'arşivlendi' : 'çöpe atıldı'), ids.length + ' emails ' + (k === 'archive' ? 'archived' : 'moved to trash'));
+      toast(msg, { label: tr('Geri al'), fn: async () => { await Mail.batch(ids, rem, add); Mail.msgs = Mail.msgs.concat(keep).sort((a, b) => b.date - a.date); render(); Mail.refreshCounts(); } });
+    } else {
+      Mail.msgs.forEach(m => { if (!ids.includes(m.id)) return; m.labels = m.labels.filter(x => !rem.includes(x)).concat(add.filter(x => !m.labels.includes(x))); });
+      toast(Lx(ids.length + ' mail güncellendi', ids.length + ' emails updated'));
+    }
+    Mail.sel.clear(); Mail.selMode = false; render(); Mail.refreshCounts();
+  } catch (e) { toast(e.message); }
+}
+let gmLongT = null, gmLongAt = 0;
+document.addEventListener('pointerdown', e => { const r = e.target.closest && e.target.closest('.mrow-main'); if (!r || Mail.selMode) return; clearTimeout(gmLongT); gmLongT = setTimeout(() => { gmLongAt = Date.now(); Mail.selMode = true; Mail.sel = new Set([r.dataset.id]); if (navigator.vibrate) navigator.vibrate(25); render(); }, 450); });
+['pointerup', 'pointercancel', 'pointermove'].forEach(ev => document.addEventListener(ev, e => { if (ev !== 'pointermove' || Math.abs(e.movementY) > 4 || Math.abs(e.movementX) > 4) clearTimeout(gmLongT); }, true));
 const gmFind = id => Mail.msgs.find(x => x.id === id) || Mail.top.find(x => x.id === id) || (Mail.cur && Mail.cur.id === id ? Mail.cur : null);
 function gmDropLocal(id) { Mail.msgs = Mail.msgs.filter(x => x.id !== id); Mail.top = Mail.top.filter(x => x.id !== id); }
 
@@ -351,12 +378,16 @@ Object.assign(ACTIONS, {
     if (k === 'reply' && !v && Mail.cfg) { Mail.cfg.send = false; Mail.saveCfg(); }
     saveSettings(); if (Mail.on() && (k === 'bell' || k === 'todayCard') && v) Mail.refreshCounts();
   },
-  'mail-sub': el => { S.mailSub = el.dataset.k; window.scrollTo(0, 0); render(); },
+  'mail-sub': el => { Mail.selMode = false; Mail.sel.clear(); S.mailSub = el.dataset.k; window.scrollTo(0, 0); render(); },
   'gm-refresh': () => { Mail.fetchedAt = 0; Mail.err = ''; Mail.fetchList(); Mail.refreshCounts(); },
   'gm-more': () => Mail.fetchList(true),
-  'gm-cat': el => { Mail.cat = el.dataset.k; Mail.msgs = []; Mail.next = null; Mail.err = ''; render(); },
+  'gm-cat': el => { Mail.selMode = false; Mail.sel.clear(); Mail.cat = el.dataset.k; Mail.msgs = []; Mail.next = null; Mail.err = ''; render(); },
   'gm-search-clear': () => { Mail.q = ''; Mail.msgs = []; Mail.err = ''; render(); },
-  'gm-open': el => openMail(el.dataset.id),
+  'gm-open': el => { if (Date.now() - gmLongAt < 700) return; openMail(el.dataset.id); },
+  'gm-select': () => { Mail.selMode = !Mail.selMode; Mail.sel.clear(); render(); },
+  'gm-pick': el => { if (Date.now() - gmLongAt < 700) return; const id = el.dataset.id; if (Mail.sel.has(id)) Mail.sel.delete(id); else Mail.sel.add(id); render(); },
+  'gm-pick-all': () => { if (Mail.sel.size === Mail.msgs.length) Mail.sel.clear(); else Mail.sel = new Set(Mail.msgs.map(m => m.id)); render(); },
+  'gm-bulk': el => { const k = el.dataset.k; if (k === 'trash' && !confirm(Lx(Mail.sel.size + ' mail çöpe atılsın mı? (30 gün içinde geri alınabilir)', 'Move ' + Mail.sel.size + ' emails to trash? (Recoverable for 30 days)'))) return; gmBulk(k); },
   'gm-open-top': el => { S.tab = 'mail'; S.mailSub = 'inbox'; render(); openMail(el.dataset.id); },
   'gm-star': async el => {
     const m = gmFind(el.dataset.id); if (!m) return; const on = m.labels.includes('STARRED');
@@ -458,7 +489,7 @@ document.addEventListener('submit', e => {
     'Çıkış maili gönderildi': 'Unsubscribe email sent', 'Çıkış sayfası açıldı, işlemi orada onayla': 'Unsubscribe page opened, confirm it there', 'Bu gönderende çıkış bağlantısı yok. Otomatik arşivlemeyi kullanabilirsin.': 'This sender has no unsubscribe link. You can use auto archive.',
     'Mailler sayılıyor…': 'Counting emails…', 'Otomatik arşivleme kapatıldı': 'Auto archive turned off', 'Gelecek mailleri otomatik arşivlenecek': 'Future emails will be archived automatically',
     'Bu gönderen için otomatik arşivleme kapatılsın mı?': 'Turn off auto archive for this sender?', 'Geçerli bir e-posta adresi yaz': 'Enter a valid email address', 'Bu gönderen zaten listede': 'This sender is already listed',
-    'Posta sekmesi': 'Mail tab', 'Posta (Gmail bağlıyken)': 'Mail (when Gmail is connected)', 'Gmail gelen kutusu, abonelikler, otomatik temizlik': 'Gmail inbox, subscriptions, auto clean-up', 'Kaldır': 'Remove', 'Ara': 'Search', 'Yenile': 'Refresh', 'Yıldız': 'Star'
+    'Posta sekmesi': 'Mail tab', 'Seç': 'Select', 'Seçimi bitir': 'Done selecting', 'seçili': 'selected', 'Hepsini seç': 'Select all', 'Hiçbirini seçme': 'Select none', 'Okundu': 'Read', 'Okunmadı': 'Unread', 'Posta (Gmail bağlıyken)': 'Mail (when Gmail is connected)', 'Gmail gelen kutusu, abonelikler, otomatik temizlik': 'Gmail inbox, subscriptions, auto clean-up', 'Kaldır': 'Remove', 'Ara': 'Search', 'Yenile': 'Refresh', 'Yıldız': 'Star'
   };
   for (const k in add) if (!(k in EN)) EN[k] = add[k];
   EN_RX.push([/^(\d+) okunmamış önemli mail$/, '$1 unread important emails']);

@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.9.1';
+const VERSION = '1.10.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -528,7 +528,7 @@ const Cal = {
     const date = allDay ? e.start.date : (e.start && e.start.dateTime || '').slice(0, 10);
     const hm = x => { if (!x) return ''; const d = new Date(x); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
     const localDate = allDay ? date : ymd(new Date(e.start.dateTime));
-    return { gid: e.id, cal: cal.id, color: cal.color, calName: cal.name, title: e.summary || '(başlıksız)', date: localDate, allDay, start: allDay ? '' : hm(e.start.dateTime), end: allDay ? '' : hm(e.end && e.end.dateTime), endDate: allDay && e.end ? e.end.date : '', notes: e.description || '', loc: e.location || '' };
+    return { gid: e.id, cal: cal.id, color: cal.color, calName: cal.name, title: e.summary || '(başlıksız)', date: localDate, allDay, start: allDay ? '' : hm(e.start.dateTime), end: allDay ? '' : hm(e.end && e.end.dateTime), endDate: allDay && e.end ? e.end.date : '', notes: e.description || '', loc: e.location || '', recurring: !!e.recurringEventId };
   },
   async fetchRange(from, to) {
     const all = [];
@@ -563,6 +563,7 @@ const Cal = {
       let end = ev.end; if (!end || end <= ev.start) { const h = Math.min(23, +ev.start.slice(0, 2) + 1); end = pad(h) + ':' + ev.start.slice(3, 5); }
       b.start = { dateTime: ev.date + 'T' + ev.start + ':00', timeZone: tz }; b.end = { dateTime: ev.date + 'T' + end + ':00', timeZone: tz };
     }
+    if (ev.rec) b.recurrence = [rrule(ev.rec, ev.allDay || !ev.start)];
     return b;
   },
   async insert(calId, ev) { const r = await Drive.api(CAL_API + '/calendars/' + encodeURIComponent(calId) + '/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.body(ev)) }); return r.json(); },
@@ -772,7 +773,10 @@ const EN = {
   'Uyarılar': 'Alerts', 'Uyarı ayarları': 'Alert settings', 'Göster': 'Show', 'Bugün gizle': 'Hide for today', 'Her şey yolunda. Şu an uyarı yok.': 'All good. No alerts right now.',
   'Sağ üstteki zilde ve Bugün ekranının üstündeki şeritte görünür. Bir uyarıyı gizlersen o gün bir daha gösterilmez.': 'Shown in the bell at the top right and in the strip on the Today screen. A hidden alert won’t show again that day.',
   'Bugün ekranında uyarı şeridi': 'Alert strip on Today screen', 'Geciken görevler': 'Overdue tasks', 'Geciken ve yaklaşan rutinler': 'Late and upcoming routines', 'Önümüzdeki 3 saatteki etkinlikler': 'Events in the next 3 hours',
-  'Akşam alışkanlık hatırlatması (20:00 sonrası)': 'Evening habit reminder (after 8 pm)', 'Son tarihi yaklaşan hedefler': 'Goals with a near deadline', 'Yedek hatırlatması': 'Backup reminder', 'Google eşitleme': 'Google sync', 'Yeni sürüm': 'New version'
+  'Akşam alışkanlık hatırlatması (20:00 sonrası)': 'Evening habit reminder (after 8 pm)', 'Son tarihi yaklaşan hedefler': 'Goals with a near deadline', 'Yedek hatırlatması': 'Backup reminder', 'Google eşitleme': 'Google sync', 'Yeni sürüm': 'New version',
+  'Tekrar': 'Repeat', 'Tekrarlanmaz': 'Does not repeat', 'Her gün': 'Every day', 'Her hafta': 'Every week', 'Her ay': 'Every month', 'Her yıl': 'Every year', 'Özel…': 'Custom…',
+  'Ne zamana kadar? (boş bırakırsan süresiz)': 'Until when? (leave empty for no end)', 'Sadece bu gün': 'Only this day', 'Tümünü sil': 'Delete all', '+ Tekrarlı iş': '+ Recurring task',
+  'Google’da tekrarlanan etkinlik; burada sadece bu gün değişir. Tekrarı Google Takvim’den düzenleyebilirsin.': 'Recurring event in Google; only this day changes here. Edit the series in Google Calendar.'
 };
 const EN_RX = [
   [/^\+(\d+) görev daha$/, '+$1 more tasks'],
@@ -925,7 +929,7 @@ function computeAlerts() {
   if (on('events')) {
     const now = new Date(), hm = pad(now.getHours()) + ':' + pad(now.getMinutes()); const lim = new Date(now.getTime() + 3 * 3600000);
     const hmL = lim.getDate() !== now.getDate() ? '23:59' : pad(lim.getHours()) + ':' + pad(lim.getMinutes());
-    const evs = list('event').filter(e => e.date === t0 && !e.allDay && e.start).concat(Cal.on() ? Cal.forDate(t0).filter(e => !e.allDay && e.start) : []);
+    const evs = eventsOn(t0).filter(e => !e.allDay && e.start).concat(Cal.on() ? Cal.forDate(t0).filter(e => !e.allDay && e.start) : []);
     evs.filter(e => e.start >= hm && e.start <= hmL).forEach(e => out.push({ id: 'ev' + (e.id || e.gid), lvl: 'warn', icon: 'event', text: e.start + ' · ' + e.title, go: 'calendar' }));
   }
   if (on('habits') && planOn('habits') && new Date().getHours() >= 20) { const n = list('habit').filter(h => habitScheduled(h, t0) && !(h.log || {})[t0]).length; if (n) out.push({ id: 'hb' + t0, lvl: 'info', icon: 'habit', text: Lx(n + ' alışkanlık bugün henüz yapılmadı', n + ' habits not done yet today'), go: 'habits' }); }
@@ -1056,7 +1060,7 @@ function viewToday() {
   const greet = h < 6 ? 'İyi geceler' : h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : 'İyi akşamlar';
   const pills = [];
   if (planOn('tasks')) { const n = list('task').filter(t => !t.done && t.due && t.due <= t0).length; pills.push('<button class="pill" data-act="go" data-k="tasks"><b>' + n + '</b> görev</button>'); }
-  if (planOn('calendar')) { const n = list('event').filter(e => e.date === t0).length; pills.push('<button class="pill" data-act="go" data-k="calendar"><b>' + n + '</b> etkinlik</button>'); }
+  if (planOn('calendar')) { const n = eventsOn(t0).length; pills.push('<button class="pill" data-act="go" data-k="calendar"><b>' + n + '</b> etkinlik</button>'); }
   if (planOn('habits')) { const hs = list('habit').filter(x => habitScheduled(x, t0)); const d = hs.filter(x => (x.log || {})[t0]).length; if (hs.length) pills.push('<button class="pill" data-act="go" data-k="habits"><b>' + d + '/' + hs.length + '</b> alışkanlık</button>'); }
   let html = alertBanner() + '<div class="hero"><div class="hero-greet">' + greet + (st.name ? ', ' + esc(st.name) : '') + '</div><div class="hero-date">' + fmtLong(t0) + '</div><div class="hero-sum">' + pills.join('') + '</div></div><div class="grid-cards">';
   const avail = { tasks: planOn('tasks'), events: planOn('calendar'), routines: planOn('routines'), habits: planOn('habits'), goals: planOn('habits'), pinned: st.notes, mail: typeof Mail !== 'undefined' && Mail.on() && gopt('todayCard') };
@@ -1083,9 +1087,9 @@ const TODAY_CARDS = {
     return card('task', T('tasks'), body, 'tasks');
   },
   events() {
-    const ev = list('event').filter(e => e.date === today()).sort(eventSort);
+    const ev = eventsOn(today()).sort(eventSort);
     const gev = Cal.on() ? Cal.forDate(today()) : [];
-    return card('event', T('calendar'), ev.length || gev.length ? gev.map(gEventRow).join('') + ev.map(eventRow).join('') : '<div class="empty">Bugün takvimin boş.</div>', 'calendar');
+    return card('event', T('calendar'), ev.length || gev.length ? gev.map(gEventRow).join('') + ev.map(e => eventRow(e, today())).join('') : '<div class="empty">Bugün takvimin boş.</div>', 'calendar');
   },
   routines() {
     const lim = addDays(today(), 7);
@@ -1197,8 +1201,8 @@ async function saveTask() {
 
 /* ----- Takvim ----- */
 const EV_COLORS = ['', '#E57B70', '#E2B54E', '#6CC08F', '#3CC4B6', '#B39AE6', '#E58A9A'];
-function eventRow(e) {
-  return '<div class="row" data-act="edit-event" data-id="' + e.id + '"><div class="ev-time">' + (e.allDay || !e.start ? 'Tüm gün' : e.start + (e.end ? '<small>' + e.end + '</small>' : '')) + '</div><div class="ev-bar" style="background:' + (e.color || 'var(--accent)') + '"></div><div class="row-main"><div class="row-title">' + esc(e.title) + '</div>' + (e.notes ? '<div class="row-meta u">' + esc(e.notes.slice(0, 100)) + '</div>' : '') + '</div></div>';
+function eventRow(e, day) {
+  return '<div class="row" data-act="edit-event" data-id="' + e.id + '" data-d="' + (day || e.date) + '"><div class="ev-time">' + (e.allDay || !e.start ? 'Tüm gün' : e.start + (e.end ? '<small>' + e.end + '</small>' : '')) + '</div><div class="ev-bar" style="background:' + (e.color || 'var(--accent)') + '"></div><div class="row-main"><div class="row-title">' + esc(e.title) + '</div>' + (e.rec ? '<div class="row-meta"><span class="rep">' + icon('repeat', 'sm') + esc(recText(e.rec)) + (e.rec.until ? ' · ' + Lx('bitiş ', 'until ') + fmtShort(e.rec.until) : '') + '</span></div>' : '') + (e.notes ? '<div class="row-meta u">' + esc(e.notes.slice(0, 100)) + '</div>' : '') + '</div></div>';
 }
 function gEventRow(e) {
   return '<div class="row gev" data-act="gev-edit" data-gid="' + esc(e.gid) + '"><div class="ev-time">' + (e.allDay || !e.start ? 'Tüm gün' : e.start + (e.end ? '<small>' + e.end + '</small>' : '')) + '</div><div class="ev-bar" style="background:' + esc(e.color || 'var(--accent)') + '"></div><div class="row-main"><div class="row-title">' + esc(e.title) + '</div><div class="row-meta"><span class="u">' + esc(e.calName || 'Google') + '</span>' + (e.loc ? ' · <span class="u">' + esc(e.loc) + '</span>' : '') + '</div></div></div>';
@@ -1213,7 +1217,7 @@ function viewCalendar() {
   const dim = new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate();
   const cellsN = Math.ceil((dow(first) + dim) / 7) * 7;
   const marks = {};
-  list('event').forEach(e => { if (e.date) { marks[e.date] = marks[e.date] || { e: 0, t: 0 }; marks[e.date].e++; } });
+  const evAll = list('event'); for (let i = 0; i < cellsN; i++) { const d = addDays(start, i); const n = evAll.filter(e => evOccurs(e, d)).length; if (n) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += n; } }
   list('task').forEach(t => { if (t.due && !t.done) { marks[t.due] = marks[t.due] || { e: 0, t: 0 }; marks[t.due].t++; } });
   if (Cal.on()) Object.keys(Cal.byDate).forEach(d => { if (Cal.byDate[d].length) { marks[d] = marks[d] || { e: 0, t: 0 }; marks[d].e += Cal.byDate[d].length; } });
   list('routine').forEach(r => { if (r.next) { marks[r.next] = marks[r.next] || { e: 0, t: 0 }; marks[r.next].t++; } });
@@ -1223,12 +1227,12 @@ function viewCalendar() {
     cells += '<button class="cal-cell ' + (d.slice(0, 7) !== m ? 'out ' : '') + (d === t0 ? 'today ' : '') + (d === S.calSel ? 'sel' : '') + '" data-act="cal-day" data-d="' + d + '"><span class="num">' + (+d.slice(8)) + '</span><span class="dots">' + (mk && mk.e ? '<i class="dot"></i>' : '') + (mk && mk.t ? '<i class="dot t"></i>' : '') + '</span></button>';
   }
   const label = parseYmd(first).toLocaleDateString(TR, { month: 'long', year: 'numeric' });
-  const ev = list('event').filter(e => e.date === S.calSel).sort(eventSort);
+  const ev = eventsOn(S.calSel).sort(eventSort);
   const tk = planOn('tasks') ? list('task').filter(t => t.due === S.calSel).sort(taskSort) : [];
   const gev = Cal.on() ? Cal.forDate(S.calSel) : [];
   const rts = list('routine').filter(r => r.next === S.calSel);
-  const agenda = '<section class="card"><div class="card-head"><div class="card-title">' + relDayLong(S.calSel) + '</div><button class="link" data-act="add-event">+ Etkinlik</button></div>' +
-    (ev.length || tk.length || gev.length || rts.length ? gev.map(gEventRow).join('') + ev.map(eventRow).join('') + rts.map(routineRow).join('') + tk.map(taskRow).join('') : '<div class="empty">Bu gün için kayıt yok.</div>') +
+  const agenda = '<section class="card"><div class="card-head"><div class="card-title">' + relDayLong(S.calSel) + '</div><div class="head-links"><button class="link" data-act="add-routine-day">+ Tekrarlı iş</button><button class="link" data-act="add-event">+ Etkinlik</button></div></div>' +
+    (ev.length || tk.length || gev.length || rts.length ? gev.map(gEventRow).join('') + ev.map(e => eventRow(e, S.calSel)).join('') + rts.map(routineRow).join('') + tk.map(taskRow).join('') : '<div class="empty">Bu gün için kayıt yok.</div>') +
     (Cal.on() && !Cal.ready() ? '<button class="link cal-refresh" data-act="sync-now">Google Takvim’i yenile</button>' : '') + '</section>';
   return '<div class="cal-wrap"><section class="card"><div class="cal-head"><button class="icon-btn" data-act="cal-prev" aria-label="Önceki ay">' + icon('left') + '</button><div class="cal-month">' + label + '</div><button class="icon-btn" data-act="cal-next" aria-label="Sonraki ay">' + icon('right') + '</button></div><div class="cal-grid">' + DAYS.map(x => '<div class="cal-dow">' + x + '</div>').join('') + cells + '</div></section>' + agenda + '</div>';
 }
@@ -1237,6 +1241,7 @@ function shiftMonth(n) { const d = parseYmd(S.calMonth + '-01'); d.setMonth(d.ge
 function editEvent(e, date, gev) {
   const isNew = !e && !gev;
   const d = gev ? Object.assign({}, gev) : e ? clone(e) : { id: uid(), type: 'event', title: '', date: date || today(), allDay: false, start: '', end: '', notes: '', color: '' };
+  if (e && date) d._occ = date;
   S.draft = d;
   const targets = Cal.on() ? Cal.writable() : [];
   const targetSel = gev ? '<div class="field"><span>Takvim</span><div class="muted u">' + esc(gev.calName || 'Google') + '</div></div>'
@@ -1246,8 +1251,9 @@ function editEvent(e, date, gev) {
     '<div class="field-row"><label class="field"><span>Tarih</span><input type="date" class="input" name="date" value="' + d.date + '"></label><div class="field toggle-field"><span>Tüm gün</span><button type="button" class="switch ' + (d.allDay ? 'on' : '') + '" data-act="switch" data-name="allDay" aria-label="Tüm gün"></button></div></div>' +
     '<div class="field-row times ' + (d.allDay ? 'hide' : '') + '"><label class="field"><span>Başlangıç</span><input type="time" class="input" name="start" value="' + (d.start || '') + '"></label><label class="field"><span>Bitiş</span><input type="time" class="input" name="end" value="' + (d.end || '') + '"></label></div>' +
     (gev ? '' : '<div class="field"><span>Renk</span><div class="chips">') + (gev ? [] : EV_COLORS).map(c => '<button type="button" class="swatch ' + ((d.color || '') === c ? 'on' : '') + '" data-act="pick-color" data-c="' + c + '" style="background:' + (c || 'var(--accent)') + '" aria-label="Renk"></button>').join('') + (gev ? '' : '</div></div>') +
+    (gev ? (gev.recurring ? '<p class="muted sm">' + icon('repeat', 'sm') + ' <span>Google’da tekrarlanan etkinlik; burada sadece bu gün değişir. Tekrarı Google Takvim’den düzenleyebilirsin.</span></p>' : '') : evRecEditor(d.rec)) +
     '<div class="field"><span>Not</span><textarea class="input" name="notes" rows="3" placeholder="Yer, detay…">' + esc(d.notes) + '</textarea></div>' +
-    '</div><div class="sheet-foot">' + (isNew ? '' : '<button class="btn danger-ghost" data-act="delete-event">' + icon('trash') + ' Sil</button>') + '<button class="btn primary" data-act="save-event">Kaydet</button></div>');
+    '</div><div class="sheet-foot">' + (isNew ? '' : (d.rec && d._occ ? '<button class="btn danger-ghost" data-act="delete-event-occ">' + icon('trash') + ' <span>Sadece bu gün</span></button><button class="btn danger-ghost" data-act="delete-event">Tümünü sil</button>' : '<button class="btn danger-ghost" data-act="delete-event">' + icon('trash') + ' Sil</button>')) + '<button class="btn primary" data-act="save-event">Kaydet</button></div>');
   if (isNew) setTimeout(() => { const i = $('#sheetRoot [name=title]'); if (i) i.focus(); }, 80);
 }
 async function saveEvent() {
@@ -1255,8 +1261,9 @@ async function saveEvent() {
   if (!title) { $('#sheetRoot [name=title]').classList.add('err'); return; }
   const allDay = $('#sheetRoot .switch[data-name=allDay]').classList.contains('on');
   const target = d.gid ? d.cal : (fval('target') || 'local');
+  const rec = d.gid ? null : readEvRec();
   if (target !== 'local') {
-    const ev = { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim() };
+    const ev = { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim(), rec };
     if (!navigator.onLine) return toast('Google Takvim için internet gerekli');
     if (!Drive.tokenOk(GCAL_SCOPE)) { try { await Drive.requestToken(); } catch (e) { return toast(e.message); } }
     try {
@@ -1267,8 +1274,9 @@ async function saveEvent() {
     return;
   }
   const base = S.items.get(d.id) || d;
-  Object.assign(base, { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim(), color: d.color || '' });
-  S.calSel = base.date; S.calMonth = base.date.slice(0, 7);
+  Object.assign(base, { title, date: fval('date') || today(), allDay, start: allDay ? '' : fval('start'), end: allDay ? '' : fval('end'), notes: fval('notes').trim(), color: d.color || '', rec });
+  if (!rec) delete base.exdates;
+  S.calSel = (d._occ && rec) ? d._occ : base.date; S.calMonth = base.date.slice(0, 7);
   closeSheet(); await save(base);
 }
 
@@ -1298,13 +1306,47 @@ function recText(rec) {
   if (rec.mode === 'after') t += en ? ' · after done' : ' · yaptıktan sonra';
   return t;
 }
-function recEditor(rec) {
+function recEditor(rec, noMode) {
   rec = rec || { mode: 'cal', every: 1, unit: 'month', wdays: [], mday: null };
   const units = [['day', 'Gün'], ['week', 'Hafta'], ['month', 'Ay'], ['year', 'Yıl']];
   return '<div class="rec-ed"><div class="field"><span>Ne sıklıkla?</span><div class="rec-row"><span class="rec-her">Her</span><input type="number" class="input rec-n" name="recEvery" min="1" step="1" inputmode="numeric" value="' + (rec.every || 1) + '"><select class="input" name="recUnit">' + units.map(u => '<option value="' + u[0] + '" ' + (rec.unit === u[0] ? 'selected' : '') + '>' + u[1] + '</option>').join('') + '</select></div></div>' +
     '<div class="field rec-week ' + (rec.unit === 'week' ? '' : 'hide') + '"><span>Belirli günler (isteğe bağlı)</span><div class="day-chips">' + DAYS.map((x, i) => '<button type="button" class="chip ' + ((rec.wdays || []).includes(i) ? 'on' : '') + '" data-act="toggle-on" data-i="' + i + '">' + x + '</button>').join('') + '</div></div>' +
     '<label class="field rec-month ' + (rec.unit === 'month' ? '' : 'hide') + '"><span>Ayın hangi günü?</span><select class="input" name="recMday"><option value="">Aynı gün</option>' + Array.from({ length: 31 }, (_, i) => '<option value="' + (i + 1) + '" ' + (+rec.mday === i + 1 ? 'selected' : '') + '>' + (i + 1) + '</option>').join('') + '<option value="last" ' + (rec.mday === 'last' ? 'selected' : '') + '>Son gün</option></select></label>' +
-    '<div class="field"><span>Nasıl sayılsın?</span>' + seg('recMode', [['cal', 'Takvime göre'], ['after', 'Yaptıktan sonra']], rec.mode || 'cal') + '<div class="sub muted sm rec-hint">Takvime göre: tarih sabittir (ör. her ayın 5’i). Yaptıktan sonra: sayaç yaptığın gün yeniden başlar (ör. filtre değişiminden 3 ay sonra).</div></div></div>';
+    (noMode ? '' : '<div class="field"><span>Nasıl sayılsın?</span>' + seg('recMode', [['cal', 'Takvime göre'], ['after', 'Yaptıktan sonra']], rec.mode || 'cal') + '<div class="sub muted sm rec-hint">Takvime göre: tarih sabittir (ör. her ayın 5’i). Yaptıktan sonra: sayaç yaptığın gün yeniden başlar (ör. filtre değişiminden 3 ay sonra).</div></div>') + '</div>';
+}
+/* Tekrarlı etkinlikler: e.rec = { mode: 'cal', every, unit, wdays, mday, until }, e.exdates = [atlanan günler] */
+function evOccurs(e, d) {
+  if (!e.rec) return e.date === d;
+  const r = e.rec, s = e.date, n = Math.max(1, parseInt(r.every, 10) || 1);
+  if (!s || d < s || (r.until && d > r.until) || (e.exdates || []).includes(d)) return false;
+  if (r.unit === 'day') return daysBetween(s, d) % n === 0;
+  if (r.unit === 'week') { const wd = r.wdays && r.wdays.length ? r.wdays : [dow(s)]; if (!wd.includes(dow(d))) return false; return Math.round(daysBetween(addDays(s, -dow(s)), addDays(d, -dow(d))) / 7) % n === 0; }
+  const A = parseYmd(s), B = parseYmd(d), last = new Date(B.getFullYear(), B.getMonth() + 1, 0).getDate();
+  if (r.unit === 'month') { const mo = (B.getFullYear() - A.getFullYear()) * 12 + B.getMonth() - A.getMonth(); if (mo % n) return false; return B.getDate() === (r.mday === 'last' ? last : Math.min(+r.mday || A.getDate(), last)); }
+  if (r.unit === 'year') { const y = B.getFullYear() - A.getFullYear(); return y % n === 0 && B.getMonth() === A.getMonth() && B.getDate() === Math.min(A.getDate(), last); }
+  return false;
+}
+const eventsOn = d => list('event').filter(e => evOccurs(e, d));
+function rrule(r, allDay) {
+  const BD = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+  let s = 'RRULE:FREQ=' + { day: 'DAILY', week: 'WEEKLY', month: 'MONTHLY', year: 'YEARLY' }[r.unit] + ';INTERVAL=' + Math.max(1, parseInt(r.every, 10) || 1);
+  if (r.unit === 'week' && r.wdays && r.wdays.length) s += ';BYDAY=' + r.wdays.slice().sort().map(i => BD[i]).join(',');
+  if (r.unit === 'month' && r.mday) s += ';BYMONTHDAY=' + (r.mday === 'last' ? -1 : r.mday);
+  if (r.until) s += ';UNTIL=' + r.until.replace(/-/g, '') + (allDay ? '' : 'T235959Z');
+  return s;
+}
+function evRecEditor(rec) {
+  const r = rec || null;
+  const preset = !r ? 'none' : ((+r.every || 1) === 1 && !(r.wdays || []).length && !r.mday ? r.unit : 'custom');
+  const opts = [['none', 'Tekrarlanmaz'], ['day', 'Her gün'], ['week', 'Her hafta'], ['month', 'Her ay'], ['year', 'Her yıl'], ['custom', 'Özel…']];
+  return '<div class="ev-rec"><label class="field"><span>Tekrar</span><select class="input" name="evRep">' + opts.map(o => '<option value="' + o[0] + '" ' + (preset === o[0] ? 'selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>' +
+    '<div class="ev-custom ' + (preset === 'custom' ? '' : 'hide') + '">' + recEditor(r && preset === 'custom' ? r : { mode: 'cal', every: 1, unit: 'week', wdays: [], mday: null }, true) + '</div>' +
+    '<label class="field ev-until ' + (preset === 'none' ? 'hide' : '') + '"><span>Ne zamana kadar? (boş bırakırsan süresiz)</span><input type="date" class="input" name="evUntil" value="' + ((r && r.until) || '') + '"></label></div>';
+}
+function readEvRec() {
+  const p = fval('evRep'); if (!p || p === 'none') return null;
+  const base = p === 'custom' ? Object.assign(readRec(), { mode: 'cal' }) : { mode: 'cal', every: 1, unit: p, wdays: [], mday: null };
+  base.until = fval('evUntil') || ''; return base;
 }
 function readRec() {
   const unit = fval('recUnit') || 'month';
@@ -1841,8 +1883,10 @@ const ACTIONS = {
   'cal-today': () => { S.calSel = today(); S.calMonth = null; render(); },
   'cal-day': el => { S.calSel = el.dataset.d; S.calMonth = el.dataset.d.slice(0, 7); render(); },
   'add-event': () => editEvent(null, S.calSel),
-  'edit-event': el => { const e = S.items.get(el.dataset.id); if (e) editEvent(e); },
+  'edit-event': el => { const e = S.items.get(el.dataset.id); if (e) editEvent(e, el.dataset.d); },
   'save-event': () => saveEvent(),
+  'delete-event-occ': async () => { const it = S.items.get(S.draft.id); const day = S.draft._occ; if (!it || !day) return closeSheet(); it.exdates = (it.exdates || []).concat(day); closeSheet(); await save(it); toast(Lx('Bu günkü tekrar silindi', 'This occurrence was removed'), { label: tr('Geri al'), fn: async () => { it.exdates = (it.exdates || []).filter(x => x !== day); await save(it); } }); },
+  'add-routine-day': () => { editRoutine(); if (S.draft) { S.draft.next = S.calSel; const n = $('#sheetRoot [name=next]'); if (n) n.value = S.calSel; } },
   'gev-edit': el => { const e = Cal.findEvent(el.dataset.gid); if (e) editEvent(null, null, e); },
   'delete-event': async () => {
     const d = S.draft;
@@ -1991,6 +2035,7 @@ document.addEventListener('change', e => {
   if (el.dataset && el.dataset.titleKey) { const st = settings(); st.titles = st.titles || {}; const v = el.value.trim(); if (v) st.titles[el.dataset.titleKey] = v; else delete st.titles[el.dataset.titleKey]; saveSettings(); return; }
   if (el.dataset && el.dataset.cmodName) { const m = cmod(el.dataset.cmodName); const v = el.value.trim(); if (m && v) { m.name = v; saveSettings(); } return; }
   if (el.id === 'calDef') { Cal.cfg.def = el.value; Cal.saveCfg(); return; }
+  if (el.name === 'evRep') { const v = el.value; const c = $('#sheetRoot .ev-custom'), u = $('#sheetRoot .ev-until'); if (c) c.classList.toggle('hide', v !== 'custom'); if (u) u.classList.toggle('hide', v === 'none'); return; }
   if (el.name === 'recUnit') { const u = el.value; const w = $('#sheetRoot .rec-week'), m = $('#sheetRoot .rec-month'); if (w) w.classList.toggle('hide', u !== 'week'); if (m) m.classList.toggle('hide', u !== 'month'); return; }
   if (el.id === 'setName') { settings().name = el.value.trim(); saveSettings(); }
   else if (el.dataset && el.dataset.tagName) { const t = S.items.get(el.dataset.tagName); const v = el.value.trim().replace(/^#/, ''); if (t && v) { t.name = v; save(t, { silent: true }); } }

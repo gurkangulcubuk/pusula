@@ -715,3 +715,23 @@ body{font-size:calc(16px*var(--fs))}
 .dn-row .grow[data-act]{cursor:pointer;border-radius:10px;padding:4px 6px;margin:-4px -6px}
 .dn-row.sel .grow{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent)}
 .dn-hint{margin:0 0 6px}.dn-hint .link{padding:0}
+/* ===== 1.10: toplu mail seçimi, tekrarlı etkinlik ===== */
+.mt-right{display:flex;align-items:center;gap:4px}
+.mpick{flex:0 0 auto;width:24px;height:24px;margin:14px 0 0 12px;border-radius:50%;border:2px solid var(--faint);display:grid;place-items:center;color:var(--accent-ink)}
+.mrow.picked .mpick{background:var(--accent);border-color:var(--accent)}
+.mrow.picked{background:var(--accent-soft)}
+.mail-list.selecting .mrow-main{padding-left:10px}
+.mail-list.selecting{margin-bottom:130px}
+.mrow-main{-webkit-touch-callout:none;user-select:none}
+.sel-bar{position:fixed;left:10px;right:10px;bottom:calc(var(--tab-h) + 10px + env(safe-area-inset-bottom));z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 8px 28px rgba(0,0,0,.35);padding:8px 10px 10px;max-width:640px;margin:0 auto}
+.sb-top{display:flex;align-items:center;gap:8px;padding:0 2px 6px;font-size:calc(14px*var(--fs))}
+.sb-top .link{margin-left:auto}
+.sb-acts{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.sb-act{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;border-radius:11px;background:var(--surface2);font-size:calc(11.5px*var(--fs));color:var(--text)}
+.sb-act svg.i{color:var(--accent)}
+.sb-act:disabled{opacity:.4}
+.ev-rec .rec-row{display:flex;gap:8px;align-items:center}
+.ev-rec .rec-row .input{min-width:0}
+.ev-rec .hide{display:none}
+.row-meta .rep{display:inline-flex;align-items:center;gap:3px}
+.head-links{display:flex;gap:12px;align-items:center}
