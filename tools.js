@@ -17,6 +17,12 @@ const TD_KEYS = ['calc', 'pomoCfg', 'pomoLog', 'loan', 'decideList'];
 const tdGet = (key, def) => { const it = S.items.get('td:' + key); if (it && !it.deleted) return JSON.parse(JSON.stringify(it.v)); const old = lsj('pusula.' + key, undefined); return old === undefined ? def : old; };
 function tdSet(key, v) { const id = 'td:' + key; const it = S.items.get(id) || { id, type: 'tooldata', key }; it.v = v; it.deleted = false; save(it, { silent: true }); }
 function tdDelPrefix(prefix) { S.items.forEach(it => { if (it.type === 'tooldata' && !it.deleted && (it.key === prefix || String(it.key).startsWith(prefix + '.'))) remove(it, { silent: true }); }); }
+/* Yarım kalan oyunlar da eşitlenir: her hamlede kısa gecikmeyle, kapatınca hemen yazılır */
+const playT = {}, playPending = {};
+function playSave(key, obj, now) { playPending[key] = JSON.parse(JSON.stringify(obj)); clearTimeout(playT[key]); if (now) playFlush(key); else playT[key] = setTimeout(() => playFlush(key), 1500); }
+function playFlush(key) { const keys = key ? [key] : Object.keys(playPending); keys.forEach(k => { if (playPending[k] === undefined) return; clearTimeout(playT[k]); tdSet(k, playPending[k]); delete playPending[k]; }); }
+window.addEventListener('pagehide', () => playFlush());
+document.addEventListener('visibilitychange', () => { if (document.hidden) playFlush(); });
 let tdMigrated = false;
 function tdMigrate() { // 1.7.0'da cihazda tutulan veriyi bir kez eşitlenen kayda taşır
   if (tdMigrated) return; tdMigrated = true;
@@ -398,8 +404,8 @@ Object.assign(ACTIONS, {
 });
 
 /* ===================== 2048 ===================== */
-let G48 = lsj('pusula.g2048', null);
-function g48New() { G48 = { grid: Array(16).fill(0), score: 0, over: false, won: false, keep: false }; g48Spawn(); g48Spawn(); lsjw('pusula.g2048', G48); }
+let G48 = null;
+function g48New() { G48 = { grid: Array(16).fill(0), score: 0, over: false, won: false, keep: false }; g48Spawn(); g48Spawn(); playSave('g2048', G48); }
 function g48Spawn() { const e = G48.grid.map((v, i) => v ? -1 : i).filter(i => i >= 0); if (!e.length) return; G48.grid[e[rnd(e.length)]] = rnd(10) ? 2 : 4; }
 function g48Move(dir) {
   if (G48.over) return;
@@ -416,14 +422,14 @@ function g48Move(dir) {
   if (max >= 2048 && !G48.won && !G48.keep) { G48.won = true; g48End(true); }
   const canMove = g.some(v => !v) || g.some((v, i) => (i % 4 < 3 && v === g[i + 1]) || (i < 12 && v === g[i + 4]));
   if (!canMove) { G48.over = true; g48End(false); }
-  lsjw('pusula.g2048', G48); g48Board();
+  playSave('g2048', G48); g48Board();
 }
 function g48End(won) {
   const s = gStats('g2048'); s.played++; if (won) s.won++; const max = Math.max(...G48.grid);
   s.best = Math.max(s.best || 0, G48.score); s.maxTile = Math.max(s.maxTile || 0, max); s.hist.push({ t: Date.now(), score: G48.score, max }); gStatsSave('g2048', s);
   toast(won ? tr('2048’e ulaştın!') : tr('Oyun bitti'));
 }
-function open2048() { if (!G48) g48New(); toolSheet('2048', '<div id="g48Wrap"></div>'); g2048Render(); }
+function open2048() { G48 = tdGet('g2048', null) || G48; if (!G48) g48New(); toolSheet('2048', '<div id="g48Wrap"></div>', () => playFlush('g2048')); g2048Render(); }
 function g2048Render() {
   const w = $('#g48Wrap'); if (!w) return; const s = gStats('g2048');
   w.innerHTML = '<div class="g-top"><div class="g-score"><span>Skor</span><b id="g48Score">' + G48.score + '</b></div><div class="g-score"><span>En iyi</span><b>' + (s.best || 0) + '</b></div><button class="btn" data-act="g48-new">Yeni oyun</button></div>' +
@@ -450,8 +456,10 @@ Object.assign(ACTIONS, { 'g48-new': () => { if (!G48.over && G48.score > 0 && !a
 const MS_LV = { easy: [9, 9, 10, 'Kolay'], mid: [12, 12, 24, 'Orta'], hard: [16, 16, 40, 'Zor'] };
 let MS = null;
 function msNew(lv) { const L = MS_LV[lv]; MS = { lv, w: L[0], h: L[1], n: L[2], cells: Array(L[0] * L[1]).fill(0).map(() => ({ m: 0, o: 0, f: 0, c: 0 })), started: 0, ended: 0, dead: false, won: false, flagMode: false, first: true }; }
+function msNearF(i) { const W = MS.w, H = MS.h, out = []; const x = i % W, y = Math.floor(i / W); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H) out.push(ny * W + nx); } return out; }
+function msSave(now) { const snap = Object.assign({}, MS, { near: null, el: MS.started && !MS.ended ? Date.now() - MS.started : 0 }); playSave('mines', snap, now); }
 function msPlace(safe) {
-  const W = MS.w, H = MS.h; const near = i => { const out = []; const x = i % W, y = Math.floor(i / W); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H) out.push(ny * W + nx); } return out; };
+  const W = MS.w, H = MS.h, near = msNearF;
   MS.near = near; const ban = new Set([safe].concat(near(safe))); let k = 0;
   while (k < MS.n) { const i = rnd(W * H); if (ban.has(i) || MS.cells[i].m) continue; MS.cells[i].m = 1; k++; }
   MS.cells.forEach((c, i) => { c.c = near(i).filter(j => MS.cells[j].m).length; });
@@ -472,9 +480,14 @@ function msEnd(won) {
 }
 let msIv = null;
 function msTimer() { clearInterval(msIv); msIv = setInterval(() => { const t = $('#msTime'); if (!t || MS.ended) { clearInterval(msIv); return; } t.textContent = Math.floor((Date.now() - MS.started) / 1000); }, 500); }
-function openMines() { if (!MS) msNew('easy'); toolSheet(T_('Mayın tarlası'), '<div id="msWrap"></div>'); minesRender(); }
+function openMines() {
+  const t = tdGet('mines', null);
+  if (t && t.cells) { MS = t; MS.near = msNearF; if (MS.started && !MS.ended) { MS.started = Date.now() - (t.el || 0); msTimer(); } }
+  if (!MS) msNew('easy');
+  toolSheet(T_('Mayın tarlası'), '<div id="msWrap"></div>', () => msSave(true)); minesRender();
+}
 function minesRender() {
-  const w = $('#msWrap'); if (!w) return; const s = gStats('mines.' + MS.lv);
+  const w = $('#msWrap'); if (!w) return; msSave(); const s = gStats('mines.' + MS.lv);
   const flags = MS.cells.filter(c => c.f).length;
   w.innerHTML = '<div class="seg tool-seg">' + Object.keys(MS_LV).map(k => '<button class="' + (MS.lv === k ? 'on' : '') + '" data-act="ms-lv" data-v="' + k + '">' + MS_LV[k][3] + '</button>').join('') + '</div>' +
     '<div class="g-top"><div class="g-score"><span>Mayın</span><b>' + (MS.n - flags) + '</b></div><div class="g-score"><span>Süre</span><b id="msTime">' + (MS.started ? Math.floor(((MS.ended || Date.now()) - MS.started) / 1000) : 0) + '</b></div>' +
@@ -499,7 +512,8 @@ Object.assign(ACTIONS, {
 
 /* ===================== Sudoku ===================== */
 const SD_LV = { easy: [42, 'Kolay'], mid: [33, 'Orta'], hard: [27, 'Zor'] };
-let SD = lsj('pusula.sudoku', null);
+let SD = null;
+const sdSnap = () => Object.assign({}, SD, { acc: SD.done ? SD.acc : SD.acc + Date.now() - SD.start });
 let sdSel = -1, sdNotes = false;
 function sdSolve(g, count) { // geri izleme ile çözüm sayısı (count'a ulaşınca durur)
   const rows = Array(9).fill(0), cols = Array(9).fill(0), box = Array(9).fill(0); const empty = [];
@@ -525,10 +539,10 @@ function sdNew(lv) {
   const puz = sol.slice(); const order = Array.from({ length: 81 }, (_, i) => i).sort(() => rnd(3) - 1); let givens = 81;
   for (const i of order) { if (givens <= SD_LV[lv][0]) break; const keep = puz[i]; puz[i] = 0; if (sdSolve(puz.slice(), 2) !== 1) puz[i] = keep; else givens--; }
   SD = { lv, sol, puz, cur: puz.slice(), notes: Array(81).fill(0), mist: 0, start: Date.now(), acc: 0, done: false };
-  sdSel = -1; lsjw('pusula.sudoku', SD);
+  sdSel = -1; SD.start = Date.now(); playSave('sudoku', sdSnap());
 }
 let sdIv = null;
-function openSudoku() { if (!SD) sdNew('easy'); SD.start = Date.now(); toolSheet(T_('Sudoku'), '<div id="sdWrap"></div>', () => { if (SD && !SD.done) { SD.acc += Date.now() - SD.start; lsjw('pusula.sudoku', SD); } clearInterval(sdIv); }); sudokuRender(); clearInterval(sdIv); sdIv = setInterval(() => { const t = $('#sdTime'); if (!t) { clearInterval(sdIv); return; } if (!SD.done) t.textContent = fmtClock(SD.acc + Date.now() - SD.start); }, 1000); }
+function openSudoku() { const t = tdGet('sudoku', null); if (t && t.sol) SD = t; if (!SD) sdNew('easy'); SD.start = Date.now(); toolSheet(T_('Sudoku'), '<div id="sdWrap"></div>', () => { if (SD) playSave('sudoku', sdSnap(), true); clearInterval(sdIv); }); sudokuRender(); clearInterval(sdIv); sdIv = setInterval(() => { const t = $('#sdTime'); if (!t) { clearInterval(sdIv); return; } if (!SD.done) t.textContent = fmtClock(SD.acc + Date.now() - SD.start); }, 1000); }
 function sudokuRender() {
   const w = $('#sdWrap'); if (!w) return; const s = gStats('sudoku.' + SD.lv);
   const selV = sdSel >= 0 ? SD.cur[sdSel] : 0;
@@ -560,11 +574,11 @@ Object.assign(ACTIONS, {
     if (sdSel < 0 || SD.done || SD.puz[sdSel]) return; const n = +el.dataset.n;
     if (sdNotes) { SD.notes[sdSel] ^= (1 << n); }
     else { SD.cur[sdSel] = n; SD.notes[sdSel] = 0; if (n !== SD.sol[sdSel]) { SD.mist++; if (navigator.vibrate) navigator.vibrate(80); } sdCheckDone(); }
-    lsjw('pusula.sudoku', SD); sudokuRender();
+    playSave('sudoku', sdSnap()); sudokuRender();
   },
-  'sd-erase': () => { if (sdSel < 0 || SD.puz[sdSel] || SD.done) return; SD.cur[sdSel] = 0; SD.notes[sdSel] = 0; lsjw('pusula.sudoku', SD); sudokuRender(); },
+  'sd-erase': () => { if (sdSel < 0 || SD.puz[sdSel] || SD.done) return; SD.cur[sdSel] = 0; SD.notes[sdSel] = 0; playSave('sudoku', sdSnap()); sudokuRender(); },
   'sd-notes': () => { sdNotes = !sdNotes; sudokuRender(); },
-  'sd-hint': () => { if (SD.done) return; let i = sdSel >= 0 && SD.cur[sdSel] !== SD.sol[sdSel] ? sdSel : SD.cur.findIndex((v, k) => v !== SD.sol[k]); if (i < 0) return; SD.cur[i] = SD.sol[i]; SD.notes[i] = 0; sdSel = i; sdCheckDone(); lsjw('pusula.sudoku', SD); sudokuRender(); },
+  'sd-hint': () => { if (SD.done) return; let i = sdSel >= 0 && SD.cur[sdSel] !== SD.sol[sdSel] ? sdSel : SD.cur.findIndex((v, k) => v !== SD.sol[k]); if (i < 0) return; SD.cur[i] = SD.sol[i]; SD.notes[i] = 0; sdSel = i; sdCheckDone(); playSave('sudoku', sdSnap()); sudokuRender(); },
   'sd-new': () => { if (!SD.done && SD.cur.some((v, i) => v && !SD.puz[i]) && !ask('Yeni bulmaca başlasın mı? Bu oyun kaydedilmez.')) return; sdNew(SD.lv); sudokuRender(); },
   'sd-lv': el => { if (!SD.done && SD.cur.some((v, i) => v && !SD.puz[i]) && !ask('Zorluk değişsin mi? Bu oyun kaydedilmez.')) return; sdNew(el.dataset.v); sudokuRender(); }
 });
@@ -588,15 +602,14 @@ function wordFor(lang, mode) {
   return ans[rnd(ans.length)];
 }
 function wState(lang, mode) {
-  let s = mode === 'daily' ? tdGet('word.' + lang + '.daily', null) : lsj('pusula.word.' + lang + '.free', null);
+  let s = tdGet('word.' + lang + '.' + mode, null);
   if (mode === 'daily' && (!s || s.day !== today())) s = { day: today(), target: wordFor(lang, 'daily'), guesses: [], cur: '', done: false, won: false };
   if (mode === 'free' && !s) s = { target: wordFor(lang, 'free'), guesses: [], cur: '', done: false, won: false };
   return s;
 }
 function wSave(lang, mode, s) {
-  if (mode !== 'daily') return lsjw('pusula.word.' + lang + '.' + mode, s);
-  const prev = tdGet('word.' + lang + '.daily', null); // günün kelimesi cihazlar arası eşitlenir, sadece tahmin girilince yazılır
-  if (!prev || prev.day !== s.day || prev.guesses.length !== s.guesses.length) tdSet('word.' + lang + '.daily', Object.assign({}, s, { cur: '' }));
+  const key = 'word.' + lang + '.' + mode; const prev = tdGet(key, null); // cihazlar arası eşitlenir, sadece tahmin girilince yazılır
+  if (!prev || prev.day !== s.day || prev.target !== s.target || prev.guesses.length !== s.guesses.length) tdSet(key, Object.assign({}, s, { cur: '' }));
 }
 function wScore(guess, target) {
   const g = Array.from(guess), t = Array.from(target), res = Array(5).fill('b'), left = {};
