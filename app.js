@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.10.0';
+const VERSION = '1.10.1';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 

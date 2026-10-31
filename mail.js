@@ -81,7 +81,7 @@ function gmLinkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href=
 /* ----- Gmail modülü ----- */
 const Mail = {
   cfg: null, selMode: false, sel: new Set(), important: 0, unread: 0, top: [], msgs: [], next: null, q: '', cat: 'all', loading: false, err: '', fetchedAt: 0, fetchedKey: '',
-  subs: null, subsBusy: false, subsProg: '', cur: null,
+  subs: null, showUnsub: false, subsBusy: false, subsProg: '', cur: null,
   async load() {
     try { this.cfg = (await DB.getMeta('gmail')) || null; } catch (e) { this.cfg = null; }
     this.important = +lsGet('pusula.gmImp', '0') || 0; this.unread = +lsGet('pusula.gmUnread', '0') || 0;
@@ -135,12 +135,13 @@ const Mail = {
   }
 };
 function mailRender() { if (S.tab === 'mail' && !$('#sheetRoot.open')) render(); }
-function gmNeedTok(scope, then) { // dokunuş anında çağrılır; izin yoksa Google penceresini açar
-  if (Drive.tokenOk(scope)) return then();
+function gmNeedTok(scopes, then) { // dokunuş anında çağrılır; eksik izin varsa Google penceresini bir kez açar
+  scopes = [].concat(scopes); const miss = scopes.filter(x => !Drive.tokenOk(x));
+  if (!miss.length) return then();
   if (!Drive.gisReady()) { Drive.loadGis().catch(() => {}); return toast(tr('Google girişi hazırlanıyor, birkaç saniye sonra tekrar dokun')); }
-  Drive.requestToken('', [scope]).then(async () => {
-    if (!Drive.tokenOk(scope)) return toast(tr('İzin verilmedi'));
-    if (scope === GM_SEND) Mail.cfg.send = true; if (scope === GM_FILTER) Mail.cfg.filt = true; await Mail.saveCfg(); then();
+  Drive.requestToken('', miss).then(async () => {
+    if (!scopes.every(x => Drive.tokenOk(x))) return toast(tr('İzin verilmedi'));
+    if (scopes.includes(GM_SEND)) Mail.cfg.send = true; if (scopes.includes(GM_FILTER)) Mail.cfg.filt = true; await Mail.saveCfg(); then();
   }).catch(e => toast(e.message));
 }
 
@@ -254,57 +255,91 @@ const gmBody = m => (m.text || (m.html ? (new DOMParser().parseFromString(m.html
 
 /* ----- abonelikler ----- */
 function viewSubs() {
-  const g = gmSet(); const un = g.unsub || {}, fl = g.filters || {};
-  let h = '<p class="muted sm mail-note">Son 6 ayda abonelik maili atan gönderenler. Tarama mail başlıklarına bakar, hiçbir şey kaydedilmez.</p>';
+  const g = gmSet(); const un = g.unsub || {}, fl = g.filters || {}, fk = g.fkind || {};
+  const unKeys = Object.keys(un).sort();
+  let h = '<p class="muted sm mail-note">Son 6 ayda abonelik maili atan gönderenler. Abonelikten çıktıkların burada bir daha görünmez; o adreslerden gelen mailler de otomatik çöpe gider.</p>';
+  const unList = unKeys.length ? '<button class="link" data-act="gm-unsubbed">' + tr(Mail.showUnsub ? 'Çıktıklarımı gizle' : 'Çıktıklarım') + ' (' + unKeys.length + ')</button>' +
+    (Mail.showUnsub ? '<div class="card mail-list">' + unKeys.map(e => { const guard = fl[e] && fk[e] === 'trash'; return '<div class="srow static"><div class="grow"><div class="u">' + esc((un[e] && un[e].name) || e) + '</div><div class="muted sm u">' + esc(e) + '</div><div class="srow-tags">' + (guard ? '<span class="badge-s ok">' + tr('Mailleri çöpe gider') + '</span>' : '<span class="badge-s warn">' + tr('Koruma yok') + '</span>') + '</div></div>' +
+      (guard ? '' : '<button class="btn sm-btn" data-act="gm-guard" data-e="' + esc(e) + '">' + tr('Korumayı aç') + '</button>') + '<button class="icon-btn" data-act="gm-unsub-undo" data-e="' + esc(e) + '" aria-label="' + tr('Listeye geri al') + '">' + icon('undo', 'sm') + '</button></div>'; }).join('') + '</div>' : '') : '';
   if (Mail.subsBusy) return h + '<div class="empty">' + tr('Taranıyor…') + ' ' + esc(Mail.subsProg) + '</div>';
-  if (!Mail.subs) return h + '<button class="btn primary block" data-act="gm-scan">' + icon('search') + ' <span>Abonelikleri tara</span></button>';
-  h += '<div class="mail-tools"><span class="muted sm">' + Mail.subs.length + ' <span>gönderen</span></span><button class="icon-btn" data-act="gm-scan" aria-label="Yeniden tara">' + icon('sync') + '</button></div>';
-  if (!Mail.subs.length) return h + '<div class="empty">Abonelik maili bulunamadı.</div>';
-  return h + '<div class="card mail-list">' + Mail.subs.map((s, i) => '<button class="srow" data-act="gm-sub" data-i="' + i + '"><div class="grow"><div class="u"><b>' + esc(s.name) + '</b></div><div class="muted sm u">' + esc(s.email) + '</div>' +
-    '<div class="srow-tags">' + (un[s.email] ? '<span class="badge-s ok">Çıkıldı</span>' : '') + (fl[s.email] ? '<span class="badge-s">Otomatik arşiv</span>' : '') + '</div></div><div class="srow-n"><b>' + s.n + '</b><span>mail</span></div></button>').join('') + '</div>';
+  if (!Mail.subs) return h + '<button class="btn primary block" data-act="gm-scan">' + icon('search') + ' <span>Abonelikleri tara</span></button>' + unList;
+  const vis = Mail.subs.map((s, i) => [s, i]).filter(x => !un[x[0].email]);
+  h += '<div class="mail-tools"><span class="muted sm">' + vis.length + ' <span>gönderen</span></span><button class="icon-btn" data-act="gm-scan" aria-label="Yeniden tara">' + icon('sync') + '</button></div>';
+  if (!vis.length) return h + '<div class="empty">Abonelik maili bulunamadı.</div>' + unList;
+  return h + '<div class="card mail-list">' + vis.map(([s, i]) => '<button class="srow" data-act="gm-sub" data-i="' + i + '"><div class="grow"><div class="u"><b>' + esc(s.name) + '</b></div><div class="muted sm u">' + esc(s.email) + '</div>' +
+    '<div class="srow-tags">' + (fl[s.email] ? '<span class="badge-s">' + tr(fk[s.email] === 'trash' ? 'Mailleri çöpe gider' : 'Otomatik arşiv') + '</span>' : '') + (s.unsub ? '' : '<span class="badge-s warn">' + tr('Çıkış bağlantısı yok') + '</span>') + '</div></div><div class="srow-n"><b>' + s.n + '</b><span>mail</span></div></button>').join('') + '</div>' + unList;
 }
 async function gmScan() {
   if (!Mail.ready() || Mail.subsBusy) return;
   Mail.subsBusy = true; Mail.subsProg = ''; mailRender();
   try {
-    const ids = await Mail.ids('(unsubscribe OR "abonelikten çık" OR "üyelikten çık" OR "e-posta almak istemiyorsanız") newer_than:180d -in:sent -in:chats', 400);
+    const ids = await Mail.ids('(unsubscribe OR "abonelikten çık" OR "üyelikten çık" OR "e-posta almak istemiyorsanız") newer_than:180d -in:sent -in:chats -in:trash', 400);
     const metas = await gmPool(ids, 10, id => Mail.meta(id), (d, n) => { Mail.subsProg = d + '/' + n; const el = $('#view .empty'); if (el && S.mailSub === 'subs') el.textContent = tr('Taranıyor…') + ' ' + Mail.subsProg; });
     const by = {};
-    metas.filter(Boolean).forEach(m => { const k = m.from.email; if (!k) return; const s = by[k] || (by[k] = { email: k, name: m.from.name || k, n: 0, last: 0, unsub: '', unsubPost: '' }); s.n++; if (m.date > s.last) { s.last = m.date; s.name = m.from.name || k; } if (m.unsub && !s.unsub) { s.unsub = m.unsub; s.unsubPost = m.unsubPost; } });
+    metas.filter(Boolean).forEach(m => { const k = m.from.email; if (!k || !k.includes('@')) return; const s = by[k] || (by[k] = { email: k, name: m.from.name || k, n: 0, last: 0, unsub: '', unsubPost: '' }); s.n++; if (m.date > s.last) { s.last = m.date; s.name = m.from.name || k; } if (m.unsub && !s.unsub) { s.unsub = m.unsub; s.unsubPost = m.unsubPost; } });
     Mail.subs = Object.values(by).filter(s => s.unsub || s.n >= 3).sort((a, b) => b.n - a.n || b.last - a.last);
   } catch (e) { toast(e.message); }
   Mail.subsBusy = false; mailRender();
 }
 function openSub(i) {
   const s = Mail.subs[i]; if (!s) return; const g = gmSet();
-  const done = (g.unsub || {})[s.email], filt = (g.filters || {})[s.email];
+  const filt = (g.filters || {})[s.email], kind = (g.fkind || {})[s.email];
   openSheet(sheetHead('<span class="u">' + esc(s.name) + '</span>') + '<div class="sheet-body"><p class="muted u" style="margin-top:0">' + esc(s.email) + '</p><p class="muted sm">' + Lx('Son 6 ayda ' + s.n + ' mail · son: ' + gmWhen(s.last), s.n + ' emails in the last 6 months · last: ' + gmWhen(s.last)) + '</p>' +
     '<div class="sub-acts">' +
-    '<button class="btn block ' + (done ? '' : 'primary') + '" data-act="gm-unsub" data-i="' + i + '">' + icon('x', 'sm') + ' <span>' + (done ? 'Tekrar abonelikten çık' : 'Abonelikten çık') + '</span></button>' +
+    '<button class="btn block primary" data-act="gm-unsub" data-i="' + i + '">' + icon('x', 'sm') + ' <span>Abonelikten çık</span></button>' +
+    '<p class="muted sm" style="margin:2px 0 8px">' + tr('Çıkış isteği gönderilir ve bu adresten gelecek mailler otomatik çöp kutusuna yönlendirilir. Gönderen isteği dikkate almasa bile gelen kutuna düşmez.') + '</p>' +
     '<button class="btn block" data-act="gm-sub-bulk" data-k="archive" data-i="' + i + '">' + icon('archive', 'sm') + ' <span>Gelen kutusundaki maillerini arşivle</span></button>' +
     '<button class="btn block" data-act="gm-sub-bulk" data-k="trash" data-i="' + i + '">' + icon('trash', 'sm') + ' <span>Tüm maillerini çöpe at</span></button>' +
-    (gopt('clean') ? '<button class="btn block" data-act="gm-filter" data-i="' + i + '">' + icon('filter', 'sm') + ' <span>' + (filt ? 'Otomatik arşivlemeyi kapat' : 'Gelecek maillerini otomatik arşivle') + '</span></button>' : '') +
+    (gopt('clean') && kind !== 'trash' ? '<button class="btn block" data-act="gm-filter" data-i="' + i + '">' + icon('filter', 'sm') + ' <span>' + (filt ? 'Otomatik arşivlemeyi kapat' : 'Gelecek maillerini otomatik arşivle') + '</span></button>' : '') +
     '</div><p class="muted sm">Çöpe atılan mailler Gmail’de 30 gün çöp kutusunda kalır, istersen geri alabilirsin.</p></div>', { onClose: () => setTimeout(render, 0) });
+}
+/* Gönderen için Gmail filtresi: kind 'trash' (çöpe gider, okundu sayılır) | 'archive' (gelen kutusunu atlar) */
+async function gmMakeFilter(email, kind) {
+  const g = gmSet(); const old = (g.filters || {})[email];
+  if (old) await Mail.api('/settings/filters/' + old, { method: 'DELETE' }).catch(e => { if (e.status !== 404) throw e; });
+  const action = kind === 'trash' ? { addLabelIds: ['TRASH'], removeLabelIds: ['INBOX', 'UNREAD'] } : { removeLabelIds: ['INBOX'] };
+  let id;
+  try { id = (await Mail.post('/settings/filters', { criteria: { from: email }, action })).id; }
+  catch (e) { if (/exist/i.test(e.message)) { const all = await Mail.api('/settings/filters'); const hit = (all.filter || []).find(f => (f.criteria || {}).from === email && JSON.stringify(f.action || {}) === JSON.stringify(action)); id = hit && hit.id; } if (!id) throw e; }
+  g.filters = Object.assign({}, g.filters, { [email]: id }); g.fkind = Object.assign({}, g.fkind, { [email]: kind }); await saveSettings();
+  return id;
+}
+async function gmDropFilter(email) {
+  const g = gmSet(); const id = (g.filters || {})[email]; if (!id) return;
+  await Mail.api('/settings/filters/' + id, { method: 'DELETE' }).catch(e => { if (e.status !== 404) throw e; });
+  const f = Object.assign({}, g.filters); delete f[email]; const k = Object.assign({}, g.fkind); delete k[email]; g.filters = f; g.fkind = k; await saveSettings();
 }
 function gmUnsubDo(s) {
   const links = (s.unsub.match(/<([^>]+)>/g) || []).map(x => x.slice(1, -1).trim());
-  const http = links.find(l => /^https:/i.test(l)), mailto = links.find(l => /^mailto:/i.test(l));
-  const mark = async () => { const g = gmSet(); g.unsub = Object.assign({}, g.unsub, { [s.email]: Date.now() }); await saveSettings(); };
-  if (http && /one-click/i.test(s.unsubPost || '')) {
-    fetch(http, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click' })
-      .then(() => { mark(); closeSheet(); toast(tr('Abonelikten çıkış isteği gönderildi')); }).catch(() => toast(tr('İstek gönderilemedi, internetini kontrol et')));
-  } else if (mailto) {
-    if (!ask('Bu gönderen çıkış için mail istiyor. PUSULA senin adına çıkış maili göndersin mi?')) return;
-    const u = mailto.slice(7); const addr = decodeURIComponent(u.split('?')[0]); const qs = new URLSearchParams(u.split('?')[1] || '');
-    gmNeedTok(GM_SEND, () => gmSendTo(addr, qs.get('subject') || 'unsubscribe', qs.get('body') || 'unsubscribe').then(() => { mark(); closeSheet(); toast(tr('Çıkış maili gönderildi')); }).catch(e => toast(e.message)));
-  } else if (http) {
-    window.open(http, '_blank', 'noopener'); mark(); toast(tr('Çıkış sayfası açıldı, işlemi orada onayla'));
-  } else toast(tr('Bu gönderende çıkış bağlantısı yok. Otomatik arşivlemeyi kullanabilirsin.'));
+  const http = links.find(l => /^https?:/i.test(l)), mailto = links.find(l => /^mailto:/i.test(l));
+  const oneClick = http && /one-click/i.test(s.unsubPost || '');
+  const how = oneClick ? 'post' : mailto ? 'mail' : http ? 'page' : 'none';
+  const msg = how === 'mail' ? Lx('“' + s.name + '” aboneliğinden çıkılsın mı? Gönderen çıkış için mail istiyor; PUSULA senin adına kısa bir çıkış maili gönderecek. Bu adresten gelecek mailler de otomatik çöpe gidecek.', 'Unsubscribe from “' + s.name + '”? This sender needs an email; PUSULA will send a short unsubscribe email for you. Future emails from this address will go to trash.')
+    : how === 'none' ? Lx('“' + s.name + '” için çıkış bağlantısı yok. Bu adresten gelecek mailler otomatik çöpe gitsin mi?', 'No unsubscribe link for “' + s.name + '”. Send future emails from this address to trash?')
+      : Lx('“' + s.name + '” aboneliğinden çıkılsın mı? Bu adresten gelecek mailler de otomatik çöpe gidecek.', 'Unsubscribe from “' + s.name + '”? Future emails from this address will also go to trash.');
+  if (!confirm(msg)) return;
+  let page = null; if (how === 'page') page = window.open(http, '_blank', 'noopener'); // dokunuş anında açılmalı
+  gmNeedTok(how === 'mail' ? [GM_FILTER, GM_SEND] : [GM_FILTER], async () => {
+    let sent = true;
+    try { await gmMakeFilter(s.email, 'trash'); } catch (e) { return toast(e.message); }
+    try {
+      if (how === 'post') await fetch(http, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click' });
+      else if (how === 'mail') { const u = mailto.slice(7); const addr = decodeURIComponent(u.split('?')[0]); const qs = new URLSearchParams(u.split('?')[1] || ''); await gmSendTo(addr, qs.get('subject') || 'unsubscribe', qs.get('body') || 'unsubscribe'); }
+    } catch (e) { sent = false; }
+    const g = gmSet(); g.unsub = Object.assign({}, g.unsub, { [s.email]: { t: Date.now(), how, name: s.name } }); await saveSettings();
+    if ($('#sheetRoot.open')) closeSheet(); render();
+    const txt = how === 'page' && !page ? Lx('Çöp yönlendirmesi kuruldu. Çıkış sayfası açılamadı; Gmail’de maildeki “Abonelikten çık”a da basabilirsin.', 'Trash rule set. The unsubscribe page could not open; you can also tap “Unsubscribe” in Gmail.')
+      : how === 'page' ? Lx('Çöp yönlendirmesi kuruldu. Açılan sayfada çıkışı onayla.', 'Trash rule set. Confirm on the page that opened.')
+        : !sent ? Lx('Çöp yönlendirmesi kuruldu, ama çıkış isteği gönderilemedi. Yine de gelen kutuna düşmeyecek.', 'Trash rule set, but the unsubscribe request failed. It still won’t reach your inbox.')
+          : how === 'none' ? Lx('Bu adresten gelen mailler artık çöpe gidecek', 'Emails from this address will now go to trash')
+            : Lx('Abonelikten çıkıldı; bu adresten gelenler artık çöpe gidecek', 'Unsubscribed; emails from this address now go to trash');
+    toast(txt, { label: tr('Eskilerini de sil'), fn: () => gmSubBulk(s, 'trash') }, 8000);
+  });
 }
 async function gmSubBulk(s, kind) {
   try {
     toast(tr('Mailler sayılıyor…'));
-    const ids = await Mail.ids('from:' + s.email + (kind === 'archive' ? ' in:inbox' : ''), 5000);
+    const ids = await Mail.ids('from:' + s.email + (kind === 'archive' ? ' in:inbox' : ' -in:trash'), 5000);
     if (!ids.length) return toast(tr('İşlenecek mail yok'));
     const msg = kind === 'archive' ? Lx('“' + s.name + '” gönderenin gelen kutusundaki ' + ids.length + ' maili arşivlensin mi?', 'Archive ' + ids.length + ' inbox emails from “' + s.name + '”?') : Lx('“' + s.name + '” gönderenin ' + ids.length + ' maili çöpe atılsın mı? (30 gün içinde geri alınabilir)', 'Move ' + ids.length + ' emails from “' + s.name + '” to trash? (Recoverable for 30 days)');
     if (!confirm(msg)) return;
@@ -314,25 +349,20 @@ async function gmSubBulk(s, kind) {
 }
 function gmFilterToggle(email, name) {
   const g = gmSet(); const cur = (g.filters || {})[email];
-  gmNeedTok(GM_FILTER, async () => {
+  if (!cur && !ask(Lx('“' + (name || email) + '” gönderenin gelecek mailleri gelen kutusuna düşmeden arşivlensin mi? (Gmail’de “Tüm postalar”da durur)', 'Archive future emails from “' + (name || email) + '” automatically? (They stay in All Mail)'))) return;
+  gmNeedTok([GM_FILTER], async () => {
     try {
-      if (cur) { await Mail.api('/settings/filters/' + cur, { method: 'DELETE' }).catch(e => { if (e.status !== 404) throw e; }); const f = Object.assign({}, g.filters); delete f[email]; g.filters = f; await saveSettings(); toast(tr('Otomatik arşivleme kapatıldı')); }
-      else {
-        if (!ask(Lx('“' + (name || email) + '” gönderenin gelecek mailleri gelen kutusuna düşmeden arşivlensin mi? (Gmail’de “Tüm postalar”da durur)', 'Archive future emails from “' + (name || email) + '” automatically? (They stay in All Mail)'))) return;
-        let id;
-        try { id = (await Mail.post('/settings/filters', { criteria: { from: email }, action: { removeLabelIds: ['INBOX'] } })).id; }
-        catch (e) { if (/exist/i.test(e.message)) { const all = await Mail.api('/settings/filters'); const hit = (all.filter || []).find(f => (f.criteria || {}).from === email); id = hit && hit.id; } if (!id) throw e; }
-        g.filters = Object.assign({}, g.filters, { [email]: id }); await saveSettings(); toast(tr('Gelecek mailleri otomatik arşivlenecek'));
-      }
+      if (cur) { await gmDropFilter(email); toast(tr('Otomatik kural kaldırıldı')); }
+      else { await gmMakeFilter(email, 'archive'); toast(tr('Gelecek mailleri otomatik arşivlenecek')); }
       if ($('#sheetRoot.open')) closeSheet(); else render();
     } catch (e) { toast(e.message); }
   });
 }
 function viewClean() {
-  const fl = gmSet().filters || {}; const keys = Object.keys(fl);
-  return '<p class="muted sm mail-note">Buradaki gönderenlerin yeni mailleri gelen kutuna düşmez, Gmail’de “Tüm postalar”da durur. Abonelikler sekmesinden de ekleyebilirsin.</p>' +
+  const g = gmSet(), fl = g.filters || {}, fk = g.fkind || {}; const keys = Object.keys(fl);
+  return '<p class="muted sm mail-note">Buradaki gönderenlerin yeni mailleri gelen kutuna düşmez: “Arşiv” olanlar Gmail’de “Tüm postalar”da, “Çöp” olanlar çöp kutusunda durur. Abonelikler sekmesinden de ekleyebilirsin.</p>' +
     '<form class="quick-add" id="gmCleanAdd"><input class="input" name="q" type="email" placeholder="Gönderen e-posta adresi" autocomplete="off" enterkeyhint="done"><button class="icon-btn" type="submit" aria-label="Ekle">' + icon('plus') + '</button></form>' +
-    (keys.length ? '<div class="card mail-list">' + keys.sort().map(e => '<div class="set-row"><div class="grow u">' + esc(e) + '</div><button class="icon-btn" data-act="gm-clean-del" data-e="' + esc(e) + '" aria-label="Kaldır">' + icon('trash', 'sm') + '</button></div>').join('') + '</div>' : '<div class="empty">Henüz otomatik arşivlenen gönderen yok.</div>');
+    (keys.length ? '<div class="card mail-list">' + keys.sort().map(e => '<div class="set-row"><div class="grow"><div class="u">' + esc(e) + '</div><div class="sub">' + tr(fk[e] === 'trash' ? 'Çöp' : 'Arşiv') + '</div></div><button class="icon-btn" data-act="gm-clean-del" data-e="' + esc(e) + '" aria-label="Kaldır">' + icon('trash', 'sm') + '</button></div>').join('') + '</div>' : '<div class="empty">Henüz otomatik kural yok.</div>');
 }
 
 /* ----- Bugün kartı ----- */
@@ -374,7 +404,7 @@ Object.assign(ACTIONS, {
   'gm-off': async () => { if (!ask('Bu cihazda Gmail bağlantısı kesilsin mi? Maillerin etkilenmez.')) return; Mail.cfg = null; await DB.setMeta('gmail', null); Mail.msgs = []; Mail.top = []; Mail.subs = null; Mail.important = 0; Mail.unread = 0; lsSet('pusula.gmImp', '0'); lsSet('pusula.gmUnread', '0'); render(); },
   'gm-opt': el => {
     const k = el.dataset.k, g = gmSet(), v = !gopt(k); g[k] = v;
-    if (k === 'reply' && v && Mail.on() && !Drive.tokenOk(GM_SEND)) gmNeedTok(GM_SEND, () => toast(tr('Cevap verme açıldı')));
+    if (k === 'reply' && v && Mail.on() && !Drive.tokenOk(GM_SEND)) gmNeedTok([GM_SEND], () => toast(tr('Cevap verme açıldı')));
     if (k === 'reply' && !v && Mail.cfg) { Mail.cfg.send = false; Mail.saveCfg(); }
     saveSettings(); if (Mail.on() && (k === 'bell' || k === 'todayCard') && v) Mail.refreshCounts();
   },
@@ -423,12 +453,12 @@ Object.assign(ACTIONS, {
     const m = gmFind(el.dataset.id); if (!m) return; closeSheet();
     setTimeout(() => { editEvent(null, today()); const t = $('#sheetRoot [name=title]'); if (t) t.value = m.subject || ''; const n = $('#sheetRoot [name=notes]'); if (n) n.value = (m.from.name || m.from.email) + '\n' + gmLink(m); if (S.draft) { S.draft.title = m.subject || ''; } }, 50);
   },
-  'gm-reply': el => { const m = gmFind(el.dataset.id); if (!m) return; if (!gopt('reply')) return; gmNeedTok(GM_SEND, () => replyBox(m)); },
+  'gm-reply': el => { const m = gmFind(el.dataset.id); if (!m) return; if (!gopt('reply')) return; gmNeedTok([GM_SEND], () => replyBox(m)); },
   'gm-reply-cancel': () => { const b = $('#gmReply'); if (b) b.innerHTML = ''; },
   'gm-quick': el => { const t = $('#gmText'); if (t) { t.value = (t.value ? t.value + '\n' : '') + el.dataset.v; t.focus(); } },
   'gm-send': el => {
     const m = gmFind(el.dataset.id); const text = ($('#gmText') || {}).value || ''; if (!m || !text.trim()) return toast(tr('Önce cevabını yaz'));
-    gmNeedTok(GM_SEND, async () => { el.disabled = true; try { await gmSend(m, text.trim()); $('#gmReply').innerHTML = ''; toast(tr('Cevap gönderildi')); } catch (e) { el.disabled = false; toast(e.message); } });
+    gmNeedTok([GM_SEND], async () => { el.disabled = true; try { await gmSend(m, text.trim()); $('#gmReply').innerHTML = ''; toast(tr('Cevap gönderildi')); } catch (e) { el.disabled = false; toast(e.message); } });
   },
   'gm-promo': async el => {
     const k = el.dataset.k;
@@ -445,7 +475,13 @@ Object.assign(ACTIONS, {
   'gm-unsub': el => { const s = Mail.subs[+el.dataset.i]; if (s) gmUnsubDo(s); },
   'gm-sub-bulk': el => { const s = Mail.subs[+el.dataset.i]; if (s) gmSubBulk(s, el.dataset.k); },
   'gm-filter': el => { const s = Mail.subs[+el.dataset.i]; if (s) gmFilterToggle(s.email, s.name); },
-  'gm-clean-del': el => { if (ask('Bu gönderen için otomatik arşivleme kapatılsın mı?')) gmFilterToggle(el.dataset.e); }
+  'gm-clean-del': el => { if (!ask('Bu gönderen için otomatik kural kaldırılsın mı? Mailleri yeniden gelen kutuna düşer.')) return; const e = el.dataset.e; gmNeedTok([GM_FILTER], async () => { try { await gmDropFilter(e); toast(tr('Otomatik kural kaldırıldı')); render(); } catch (x) { toast(x.message); } }); },
+  'gm-unsubbed': () => { Mail.showUnsub = !Mail.showUnsub; render(); },
+  'gm-guard': el => { const e = el.dataset.e; gmNeedTok([GM_FILTER], async () => { try { await gmMakeFilter(e, 'trash'); toast(tr('Bu adresten gelen mailler artık çöpe gidecek')); render(); } catch (x) { toast(x.message); } }); },
+  'gm-unsub-undo': el => {
+    const e = el.dataset.e; if (!ask('Bu adres listeye geri alınsın mı? Çöpe yönlendirme kuralı kaldırılır. (Gönderene yeniden abone olmak için onun sitesini kullanman gerekir.)')) return;
+    gmNeedTok([GM_FILTER], async () => { try { if ((gmSet().fkind || {})[e] === 'trash') await gmDropFilter(e); const g = gmSet(); const u = Object.assign({}, g.unsub); delete u[e]; g.unsub = u; await saveSettings(); render(); } catch (x) { toast(x.message); } });
+  }
 });
 document.addEventListener('submit', e => {
   const f = e.target;
@@ -489,7 +525,13 @@ document.addEventListener('submit', e => {
     'Çıkış maili gönderildi': 'Unsubscribe email sent', 'Çıkış sayfası açıldı, işlemi orada onayla': 'Unsubscribe page opened, confirm it there', 'Bu gönderende çıkış bağlantısı yok. Otomatik arşivlemeyi kullanabilirsin.': 'This sender has no unsubscribe link. You can use auto archive.',
     'Mailler sayılıyor…': 'Counting emails…', 'Otomatik arşivleme kapatıldı': 'Auto archive turned off', 'Gelecek mailleri otomatik arşivlenecek': 'Future emails will be archived automatically',
     'Bu gönderen için otomatik arşivleme kapatılsın mı?': 'Turn off auto archive for this sender?', 'Geçerli bir e-posta adresi yaz': 'Enter a valid email address', 'Bu gönderen zaten listede': 'This sender is already listed',
-    'Posta sekmesi': 'Mail tab', 'Seç': 'Select', 'Seçimi bitir': 'Done selecting', 'seçili': 'selected', 'Hepsini seç': 'Select all', 'Hiçbirini seçme': 'Select none', 'Okundu': 'Read', 'Okunmadı': 'Unread', 'Posta (Gmail bağlıyken)': 'Mail (when Gmail is connected)', 'Gmail gelen kutusu, abonelikler, otomatik temizlik': 'Gmail inbox, subscriptions, auto clean-up', 'Kaldır': 'Remove', 'Ara': 'Search', 'Yenile': 'Refresh', 'Yıldız': 'Star'
+    'Posta sekmesi': 'Mail tab', 'Son 6 ayda abonelik maili atan gönderenler. Abonelikten çıktıkların burada bir daha görünmez; o adreslerden gelen mailler de otomatik çöpe gider.': 'Senders of subscription emails in the last 6 months. Senders you unsubscribe from won’t show again, and their emails go to trash automatically.',
+    'Çıktıklarımı gizle': 'Hide unsubscribed', 'Çıktıklarım': 'Unsubscribed', 'Mailleri çöpe gider': 'Goes to trash', 'Koruma yok': 'No protection', 'Korumayı aç': 'Protect', 'Listeye geri al': 'Restore to list', 'Çıkış bağlantısı yok': 'No unsubscribe link',
+    'Çıkış isteği gönderilir ve bu adresten gelecek mailler otomatik çöp kutusuna yönlendirilir. Gönderen isteği dikkate almasa bile gelen kutuna düşmez.': 'An unsubscribe request is sent and future emails from this address are routed to trash. Even if the sender ignores it, nothing reaches your inbox.',
+    'Eskilerini de sil': 'Delete old ones too', 'Otomatik kural kaldırıldı': 'Auto rule removed', 'Çöp': 'Trash', 'Arşiv': 'Archive', 'Henüz otomatik kural yok.': 'No auto rules yet.',
+    'Buradaki gönderenlerin yeni mailleri gelen kutuna düşmez: “Arşiv” olanlar Gmail’de “Tüm postalar”da, “Çöp” olanlar çöp kutusunda durur. Abonelikler sekmesinden de ekleyebilirsin.': 'New emails from these senders skip your inbox: “Archive” ones stay in All Mail, “Trash” ones go to trash. You can also add from Subscriptions.',
+    'Bu gönderen için otomatik kural kaldırılsın mı? Mailleri yeniden gelen kutuna düşer.': 'Remove the auto rule for this sender? Their emails will reach your inbox again.',
+    'Bu adres listeye geri alınsın mı? Çöpe yönlendirme kuralı kaldırılır. (Gönderene yeniden abone olmak için onun sitesini kullanman gerekir.)': 'Restore this address to the list? The trash rule is removed. (To resubscribe, use the sender’s website.)', 'Seç': 'Select', 'Seçimi bitir': 'Done selecting', 'seçili': 'selected', 'Hepsini seç': 'Select all', 'Hiçbirini seçme': 'Select none', 'Okundu': 'Read', 'Okunmadı': 'Unread', 'Posta (Gmail bağlıyken)': 'Mail (when Gmail is connected)', 'Gmail gelen kutusu, abonelikler, otomatik temizlik': 'Gmail inbox, subscriptions, auto clean-up', 'Kaldır': 'Remove', 'Ara': 'Search', 'Yenile': 'Refresh', 'Yıldız': 'Star'
   };
   for (const k in add) if (!(k in EN)) EN[k] = add[k];
   EN_RX.push([/^(\d+) okunmamış önemli mail$/, '$1 unread important emails']);

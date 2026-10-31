@@ -735,3 +735,6 @@ body{font-size:calc(16px*var(--fs))}
 .ev-rec .hide{display:none}
 .row-meta .rep{display:inline-flex;align-items:center;gap:3px}
 .head-links{display:flex;gap:12px;align-items:center}
+.badge-s.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.srow.static{cursor:default}
+.srow .btn.sm-btn{flex:0 0 auto}
