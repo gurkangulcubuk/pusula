@@ -1107,3 +1107,15 @@ body{font-size:calc(16px*var(--fs))}
 /* sade hareket */
 [data-calm=on] *:not(.fc-bcircle):not(.fc-btext span):not(.sa-mic):not(#ptr svg){transition:none!important;animation:none!important}
 [data-calm=on]{scroll-behavior:auto}
+/* ===== 1.21: kalem notu ===== */
+.ink-paper{background:none!important;box-shadow:none!important;display:grid;gap:14px;position:relative}
+.ink-page{position:relative;border-radius:6px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.18);background-color:var(--surface)}
+.ink-cv{display:block;touch-action:none;-webkit-user-select:none;user-select:none}
+.ink-live{position:absolute;left:0;pointer-events:none;touch-action:none}
+#inkPaper{touch-action:none}
+.ink-menu{display:flex;flex-wrap:wrap;gap:6px;padding:6px 12px 8px;border-bottom:1px solid var(--line)}
+.ink-colors{display:flex;gap:8px;padding:6px 14px 8px;border-bottom:1px solid var(--line);overflow-x:auto}
+/* yazı notunda renk yazılan alanı boyar */
+.note-ed{border-top:0!important;background:color-mix(in srgb,var(--nc,transparent) 13%,transparent);border-radius:14px}
+.note-ed[style*="--nc"] .note-body,.note-ed[style*="--nc"] #noteTitle{background:transparent}
+.note-ed .nc-row{display:flex;gap:8px;padding:8px 2px 2px;flex-wrap:wrap}

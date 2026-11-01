@@ -105,7 +105,7 @@ function openNote(n, opts) {
   S.noteEd = { d, saved: !isNew, deleted: false, t: null };
   const body = d.kind === 'list' ? '<div id="nlBox"></div>' :
     '<div class="nt-tools">' + TOOLS_TXT.map(t => '<button type="button" class="chip sm" data-act="nt-ins" data-v="' + esc(t[0]) + '" title="' + t[2] + '" aria-label="' + t[2] + '">' + t[1] + '</button>').join('') + '</div><textarea id="noteBody" class="note-body" placeholder="Yazmaya başla…">' + esc(d.body) + '</textarea>';
-  openSheet(edTop(d) + '<div class="note-ed ' + (d.kind === 'list' ? 'is-list' : '') + '"' + (d.color ? ' style="--nc:' + d.color + '"' : '') + '><input class="input big" id="noteTitle" placeholder="Başlık" value="' + esc(d.title) + '" autocomplete="off">' + body + '<div class="note-tags">' + tagPicker('note', d.tags) + '</div></div>', { full: true, onClose: noteFinish });
+  openSheet(edTop(d) + '<div class="note-ed ' + (d.kind === 'list' ? 'is-list' : '') + '"' + (d.color ? ' style="--nc:' + d.color + '"' : '') + '><input class="input big" id="noteTitle" placeholder="Başlık" value="' + esc(d.title) + '" autocomplete="off">' + body + '<div class="nc-row">' + NOTE_COLORS.map(c => '<button class="swatch ' + ((d.color || '') === c ? 'on' : '') + '" data-act="note-color" data-c="' + c + '" style="background:' + (c || 'var(--surface2)') + '" aria-label="Renk"></button>').join('') + '</div><div class="note-tags">' + tagPicker('note', d.tags) + '</div></div>', { full: true, onClose: noteFinish });
   if (d.kind === 'list') nlRender(isNew);
   else if (isNew) setTimeout(() => { const b = $('#noteBody'); if (b) b.focus(); }, 80);
 }
@@ -210,7 +210,7 @@ Object.assign(ACTIONS, {
   },
   'note-colors': () => { $('#noteColors').classList.toggle('hide'); $('#noteMore').classList.add('hide'); },
   'note-more': () => { $('#noteMore').classList.toggle('hide'); $('#noteColors').classList.add('hide'); },
-  'note-color': el => { const E = S.noteEd; if (!E) return; E.d.color = el.dataset.c; $$('#noteColors .swatch').forEach(b => b.classList.toggle('on', b === el)); const btn = $('.note-color-btn'); if (btn) btn.style.color = E.d.color || ''; const ed = $('.note-ed'); if (ed) { if (E.d.color) ed.style.setProperty('--nc', E.d.color); else ed.style.removeProperty('--nc'); } noteChanged(); },
+  'note-color': el => { const E = S.noteEd; if (!E) return; E.d.color = el.dataset.c; $$('#noteColors .swatch, .nc-row .swatch').forEach(b => b.classList.toggle('on', b.dataset.c === el.dataset.c)); const btn = $('.note-color-btn'); if (btn) btn.style.color = E.d.color || ''; const ed = $('.note-ed'); if (ed) { if (E.d.color) ed.style.setProperty('--nc', E.d.color); else ed.style.removeProperty('--nc'); } noteChanged(); },
   'nt-ins': el => { const ta = $('#noteBody'); if (!ta) return; let v = el.dataset.v; if (v === '@date') v = new Date().toLocaleString(TR, { dateStyle: 'medium', timeStyle: 'short' }) + ' '; insertAtCursor(ta, v); },
   'nl-toggle': el => { const E = S.noteEd; if (!E) return; const x = E.d.items.find(i => i.id === el.dataset.id); if (!x) return; x.done = !x.done; if (navigator.vibrate) navigator.vibrate(15); nlChanged(); nlRender(); },
   'nl-del': el => { const E = S.noteEd; if (!E) return; E.d.items = E.d.items.filter(i => i.id !== el.dataset.id); nlChanged(); nlRender(); },
