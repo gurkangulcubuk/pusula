@@ -11,8 +11,73 @@
   "background_color": "#0E0E0F",
   "theme_color": "#0E0E0F",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Yeni görev",
+      "short_name": "Görev",
+      "url": "./?go=task",
+      "icons": [
+        {
+          "src": "icons/sc-task.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Gelir / gider ekle",
+      "short_name": "Gelir/gider",
+      "url": "./?go=tx",
+      "icons": [
+        {
+          "src": "icons/sc-tx.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Sayaç +1",
+      "short_name": "Sayaç +1",
+      "url": "./?go=ctr",
+      "icons": [
+        {
+          "src": "icons/sc-ctr.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Odak başlat",
+      "short_name": "Odak",
+      "url": "./?go=focus",
+      "icons": [
+        {
+          "src": "icons/sc-focus.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }
