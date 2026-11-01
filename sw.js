@@ -1,5 +1,5 @@
 /* PUSULA — offline çalışma için önbellek */
-const CACHE = 'pusula-v1.19.1';
+const CACHE = 'pusula-v1.20.0';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './tools.js', './mail.js', './feedback.js', './planner.js', './notes.js', './ux.js', './money.js', './money2.js', './focus.js', './games2.js', './extras.js', './ux2.js', './words-tr.txt', './words-en.txt', './words-tr-all.txt', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/sc-task.png', './icons/sc-tx.png', './icons/sc-ctr.png', './icons/sc-focus.png',
   './fonts/carlito-400.woff2', './fonts/carlito-400-ext.woff2', './fonts/carlito-700.woff2', './fonts/carlito-700-ext.woff2', './fonts/source-sans-3.woff2', './fonts/source-sans-3-ext.woff2',
   './fonts/plex-400.woff2', './fonts/plex-400-ext.woff2', './fonts/plex-500.woff2', './fonts/plex-500-ext.woff2', './fonts/plex-600.woff2', './fonts/plex-600-ext.woff2', './fonts/plex-700.woff2', './fonts/plex-700-ext.woff2'];
@@ -29,6 +29,10 @@ self.addEventListener('notificationclick', e => {
   e.notification.close();
   const d = e.notification.data || {}, act = e.action;
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    if (d.mail !== undefined) { // yeni mail bildirimi: uygulamayı aç ve maili göster
+      for (const c of list) { if ('focus' in c) { c.postMessage({ pusula: 'mail', id: d.mail }); return c.focus(); } }
+      return self.clients.openWindow('./?go=mail&id=' + encodeURIComponent(d.mail || ''));
+    }
     if (act && d.rem) { // Tamamlandı / 10 dk ertele: açık uygulamaya ilet, yoksa açıp ilet
       if (list.length) { list[0].postMessage({ pusula: 'rem', action: act, r: d.rem }); return; }
       return self.clients.openWindow('./?go=rem&a=' + encodeURIComponent(act) + '&r=' + encodeURIComponent(JSON.stringify(d.rem)));

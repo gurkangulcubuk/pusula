@@ -71,6 +71,7 @@ if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message',
   const orig = typeof handleLaunch === 'function' ? handleLaunch : null;
   window.handleLaunch = function () {
     let p; try { p = new URLSearchParams(location.search); } catch (e) { p = null; }
+    if (p && p.get('go') === 'mail') { const id = p.get('id') || ''; try { history.replaceState(null, '', location.pathname); } catch (e) { /* yok */ } setTimeout(() => gmOpenFromNotice(id), 900); return; }
     if (p && p.get('go') === 'rem') { let r = null; try { r = JSON.parse(p.get('r') || 'null'); } catch (e) { /* bozuk */ } try { history.replaceState(null, '', location.pathname); } catch (e) { /* yok */ } setTimeout(() => remAct(p.get('a'), r), 600); return; }
     if (orig) orig();
   };

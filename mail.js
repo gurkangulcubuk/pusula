@@ -10,6 +10,8 @@ const GM_OPTS = {
   inbox: [true, 'Gelen kutusu', 'Son mailleri gör; arşivle, çöpe at, yıldızla, göreve çevir, Gmail’de aç'],
   subs: [true, 'Abonelikler', 'Sık mail atan gönderenler; abonelikten çık, eski maillerini toplu arşivle ya da çöpe at'],
   clean: [true, 'Otomatik temizlik', 'Seçtiğin gönderenlerin gelecek mailleri otomatik arşivlenir'],
+  notify: [true, 'Yeni mail bildirimi', 'Yeni mail gelince bildirim gösterir (uygulama açıkken ya da arka plandayken)'],
+  notifyAll: [false, 'Bildirimde tüm gelen kutusu', 'Kapalıyken sadece Birincil kategorisindeki mailler bildirilir; reklamlar gelmez'],
   bell: [true, 'Zilde önemli mail sayısı', 'Okunmamış önemli mailler uyarılarda görünür'],
   search: [true, 'Mailde arama', ''],
   cats: [true, 'Kategoriler', 'Birincil, Promosyonlar, Sosyal, Güncellemeler'],
@@ -20,7 +22,7 @@ const GM_OPTS = {
   promo: [true, 'Promosyonlarda toplu temizlik', 'Hepsini okundu yap, hepsini arşivle'],
   reply: [false, 'Cevap verme', 'Açınca Google bir kez mail gönderme izni ister']
 };
-const GM_MAIN = ['inbox', 'subs', 'clean', 'bell'];
+const GM_MAIN = ['inbox', 'notify', 'notifyAll', 'subs', 'clean', 'bell'];
 const GM_EXTRA = ['search', 'cats', 'toEvent', 'toNote', 'todayCard', 'quick', 'promo'];
 const GM_CATS = [['all', 'Tümü'], ['primary', 'Birincil'], ['promotions', 'Promosyonlar'], ['social', 'Sosyal'], ['updates', 'Güncellemeler']];
 const GM_QUICK = { tr: ['Teşekkürler!', 'Aldım, dönüş yapacağım.', 'Uygun, olur.', 'Şu an müsait değilim, sonra yazacağım.'], en: ['Thank you!', 'Got it, I’ll get back to you.', 'Sounds good.', 'I’m busy right now, I’ll write later.'] };
@@ -650,3 +652,47 @@ document.addEventListener('submit', e => {
   for (const k in add) if (!(k in EN)) EN[k] = add[k];
   EN_RX.push([/^(\d+) okunmamış önemli mail$/, '$1 unread important emails']);
 })();
+
+/* ===================== Yeni mail bildirimi (1.20) =====================
+   Sunucusuz çalışır: uygulama açıkken ya da arka plandayken 2 dakikada bir Gmail'e bakar; yeni gelen okunmamış
+   mailleri bildirir. İlk bakışta mevcut mailleri "görüldü" sayar (bildirim yağmuru olmasın). */
+const gmSeen = () => { try { return JSON.parse(lsGet('pusula.gmSeen', 'null')); } catch (e) { return null; } };
+let gmPollAt = 0, gmPolling = false;
+async function gmPoll(force) {
+  if (!Mail.on() || !gopt('notify') || gmPolling || !navigator.onLine || !Drive.tokenOk(GM_MODIFY)) return;
+  if (!force && Date.now() - gmPollAt < 110000) return;
+  gmPolling = true; gmPollAt = Date.now();
+  try {
+    const q = 'in:inbox is:unread newer_than:2d' + (gopt('notifyAll') ? '' : ' category:primary');
+    const r = await Mail.api('/messages?maxResults=15&q=' + encodeURIComponent(q)); const ids = (r.messages || []).map(x => x.id);
+    let seen = gmSeen();
+    if (!seen) { lsSet('pusula.gmSeen', JSON.stringify(ids)); return; } // ilk çalışma: mevcutları bildirme
+    const fresh = ids.filter(id => !seen.includes(id));
+    if (fresh.length) {
+      seen = fresh.concat(seen).slice(0, 300); lsSet('pusula.gmSeen', JSON.stringify(seen));
+      const metas = (await gmPool(fresh.slice(0, 5), 3, id => Mail.meta(id))).filter(Boolean);
+      metas.forEach(m => { if (!gmFind(m.id)) Mail.top = [m].concat(Mail.top || []).slice(0, 10); });
+      gmNotify(metas, fresh.length);
+      Mail.refreshCounts(); if (S.tab === 'mail' && !$('#sheetRoot.open')) { Mail.fetchedAt = 0; Mail.fetchList(); }
+    }
+  } catch (e) { /* sessiz: bir sonraki turda tekrar */ }
+  finally { gmPolling = false; }
+}
+function gmNotify(metas, n) {
+  if (!metas.length) return; const m = metas[0];
+  const title = n > 1 ? Lx(n + ' yeni mail', n + ' new emails') : (m.from.name || m.from.email);
+  const body = n > 1 ? metas.map(x => (x.from.name || x.from.email) + ': ' + (x.subject || '')).join('\n') : (m.subject || tr('(konusuz)'));
+  if (document.hidden && 'Notification' in window && Notification.permission === 'granted' && navigator.serviceWorker) {
+    navigator.serviceWorker.getRegistration().then(reg => reg && reg.showNotification('📧 ' + title, { body, tag: 'pusula-mail', renotify: true, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', data: { mail: n > 1 ? '' : m.id } })).catch(() => {});
+  } else if (!document.hidden) toast('📧 ' + title + (n > 1 ? '' : ' · ' + (m.subject || '')), { label: tr('Aç'), fn: () => gmOpenFromNotice(n > 1 ? '' : m.id) }, 8000);
+}
+async function gmOpenFromNotice(id) {
+  S.tab = 'mail'; S.mailSub = 'inbox'; window.scrollTo(0, 0); render();
+  if (!id) return; if (!gmFind(id)) { try { const m = await Mail.meta(id); if (m) Mail.top = [m].concat(Mail.top || []); } catch (e) { return; } }
+  openMail(id);
+}
+setInterval(() => gmPoll(false), 120000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(() => gmPoll(false), 3000); });
+window.addEventListener('load', () => setTimeout(() => gmPoll(true), 8000));
+if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', e => { const d = e.data || {}; if (d.pusula === 'mail') gmOpenFromNotice(d.id); });
+(function () { const add = { 'Yeni mail bildirimi': 'New email notifications', 'Yeni mail gelince bildirim gösterir (uygulama açıkken ya da arka plandayken)': 'Notifies you of new email (while the app is open or in the background)', 'Bildirimde tüm gelen kutusu': 'Notify for whole inbox', 'Kapalıyken sadece Birincil kategorisindeki mailler bildirilir; reklamlar gelmez': 'When off, only Primary category emails notify; no promotions', 'Aç': 'Open' }; for (const k in add) if (!(k in EN)) EN[k] = add[k]; })();
