@@ -952,3 +952,9 @@ body{font-size:calc(16px*var(--fs))}
 .pick-list .row{text-align:left;background:none;width:100%;font:inherit;color:inherit}
 .m-filter .chips{flex:1 1 100%}
 .m-filter .m-acct{max-width:none;flex:0 0 auto}
+/* ===== 1.15.1: abonelik kontrolü ===== */
+.sub-unhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:4px 2px 8px;flex-wrap:wrap}
+.sub-leak{white-space:normal!important}
+.sub-addrs{border:1px solid var(--line);border-radius:12px;padding:6px 12px;margin:4px 0 10px;font-size:calc(13px*var(--fs))}
+.sub-addrs div{display:flex;justify-content:space-between;gap:10px;padding:4px 0}
+.sub-addrs .u{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
