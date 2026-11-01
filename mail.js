@@ -386,7 +386,7 @@ function gmUnsubDo(s, scope) {
     try { for (const t of targets) await gmMakeFilter(t, 'trash'); } catch (e) { return toast(e.message); }
     try {
       if (how === 'post') await fetch(http, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click' });
-      else if (how === 'mail') { const u = mailto.slice(7); const addr = decodeURIComponent(u.split('?')[0]); const qs = new URLSearchParams(u.split('?')[1] || ''); await gmSendTo(addr, qs.get('subject') || 'unsubscribe', qs.get('body') || 'unsubscribe'); }
+      else if (how === 'mail') { const addr = decodeURIComponent(mailto.slice(7).split('?')[0]).replace(/[\r\n]/g, '').trim(); if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(addr)) throw new Error('bad mailto'); await gmSendTo(addr, 'unsubscribe', 'unsubscribe'); } // tek adres, sabit metin: gönderen başka alıcı ya da metin dayatamaz
     } catch (e) { sent = false; }
     const g = gmSet(); g.unsub = Object.assign({}, g.unsub, { [s.key]: { t: Date.now(), how, name: s.name, targets } }); await saveSettings();
     if ($('#sheetRoot.open')) closeSheet(); render();

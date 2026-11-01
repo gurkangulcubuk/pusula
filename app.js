@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.17.0';
+const VERSION = '1.17.1';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -113,8 +113,44 @@ const S = {
 const list = type => { const out = []; S.items.forEach(it => { if (it.type === type && !it.deleted) out.push(it); }); return out; };
 const strip = it => { const o = Object.assign({}, it); delete o._dirty; delete o._dd; delete o._calPending; return o; };
 
+/* Ayarlar tek kayıt; iki cihazda farklı alanlar değişince biri ötekini silmesin diye alan bazında zaman damgası (_ft) tutulur
+   ve eşitlemede alan alan birleştirilir. Gmail abonelik/kural listeleri ve içe aktarma eşleştirmeleri kayıt kayıt birleşir. */
+const SET_META = ['id', 'type', 'updated', 'created', '_dd', '_dirty', '_ft'];
+const SET_DEEP = { gmail: { unsub: 1, filters: 1, fkind: 1 }, moneyImport: 1 };
+const SEP = '\u0001';
+const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+function setFlat(s) {
+  const o = {};
+  for (const k in s) {
+    if (SET_META.includes(k)) continue; const spec = SET_DEEP[k], v = s[k];
+    if (spec && isObj(v)) { for (const j in v) { if (spec !== 1 && spec[j] && isObj(v[j])) { for (const e in v[j]) o[k + SEP + j + SEP + e] = JSON.stringify(v[j][e]); } else o[k + SEP + j] = JSON.stringify(v[j]); } }
+    else o[k] = JSON.stringify(v);
+  }
+  return o;
+}
+function setStamp(item) {
+  const cur = setFlat(item), prev = S.setSnap; item._ft = item._ft || {};
+  if (prev) new Set(Object.keys(cur).concat(Object.keys(prev))).forEach(k => { if (cur[k] !== prev[k]) item._ft[k] = item.updated; });
+  S.setSnap = cur; S.setSnapFor = item;
+}
+function setMerge(a, b) { // a: yerel, b: uzak → birleşik kayıt, uzağa yüklemek gerekiyor mu
+  const fa = setFlat(a), fb = setFlat(b), ta = a._ft || {}, tb = b._ft || {};
+  const ts = (rec, t, k) => t[k] != null ? t[k] : (rec._ft ? 0 : rec.updated || 0);
+  const out = { id: 'settings', type: b.type || a.type, created: a.created || b.created, updated: Math.max(a.updated || 0, b.updated || 0), _ft: {} };
+  const flat = {}; let up = false;
+  new Set(Object.keys(fa).concat(Object.keys(fb), Object.keys(ta), Object.keys(tb))).forEach(k => {
+    const x = ts(a, ta, k), y = ts(b, tb, k); const useA = x > y || (x === y && (a.updated || 0) > (b.updated || 0));
+    const v = useA ? fa[k] : fb[k]; if (v !== undefined) flat[k] = v; out._ft[k] = Math.max(x, y);
+    if (v !== fb[k]) up = true;
+  });
+  Object.keys(SET_DEEP).forEach(k => { if (isObj(a[k]) || isObj(b[k])) { out[k] = {}; const spec = SET_DEEP[k]; if (spec !== 1) Object.keys(spec).forEach(j => { if ((isObj(a[k]) && isObj(a[k][j])) || (isObj(b[k]) && isObj(b[k][j]))) out[k][j] = {}; }); } });
+  for (const p in flat) { const parts = p.split(SEP), v = JSON.parse(flat[p]); let o = out; for (let i = 0; i < parts.length - 1; i++) { o[parts[i]] = isObj(o[parts[i]]) ? o[parts[i]] : {}; o = o[parts[i]]; } o[parts[parts.length - 1]] = v; }
+  return { rec: out, up };
+}
+
 async function save(item, opts) {
   item.updated = Date.now();
+  if (item.id === 'settings') setStamp(item);
   if (!item.created) item.created = item.updated;
   item._dd = 1;
   S.items.set(item.id, item);
@@ -277,6 +313,7 @@ function settings() {
   if (!(s.accent in ACCENTS)) s.accent = 'theme';
   ['today', 'plan'].forEach(key => DEFAULT_SETTINGS[key].forEach(d => { if (!s[key].find(x => x.k === d.k)) s[key].push(clone(d)); }));
   s.today = s.today.filter(x => !String(x.k).startsWith('c:') || (s.custom || []).some(m => 'c:' + m.id === x.k));
+  if (S.setSnapFor !== s) { S.setSnap = setFlat(s); S.setSnapFor = s; } // yüklenen/değişen kayıt için anlık görüntü
   return s;
 }
 const saveSettings = () => save(settings());
@@ -483,6 +520,10 @@ const Drive = {
         (data.items || []).forEach(it => {
           if (!it || !it.id || !it.type) return;
           const loc = S.items.get(it.id);
+          if (it.id === 'settings' && loc) { // alan alan birleştir
+            const m = setMerge(loc, it); if (JSON.stringify(setFlat(m.rec)) === JSON.stringify(setFlat(loc))) { if (m.up) loc._dd = 1; return; }
+            if (m.up) m.rec._dd = 1; S.items.set('settings', m.rec); S.setSnap = setFlat(m.rec); S.setSnapFor = m.rec; toPut.push(m.rec); changed = true; return;
+          }
           if (!loc || (it.updated || 0) > (loc.updated || 0)) { delete it._dirty; delete it._dd; S.items.set(it.id, it); toPut.push(it); changed = true; }
         });
         await DB.putMany(toPut);
@@ -946,7 +987,7 @@ function closeSheet(fromPop) {
 window.addEventListener('popstate', () => closeSheet(true));
 const sheetHead = (title) => '<div class="sheet-head"><h2>' + title + '</h2><button class="icon-btn" data-act="close-sheet" aria-label="Kapat">' + icon('x') + '</button></div>';
 function seg(name, options, val) {
-  return '<div class="seg" data-name="' + name + '">' + options.map(o => '<button type="button" class="' + (String(o[0]) === String(val) ? 'on' : '') + '" data-act="seg-pick" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>';
+  return '<div class="seg" data-name="' + name + '">' + options.map(o => '<button type="button" class="' + (String(o[0]) === String(val) ? 'on' : '') + '" data-act="seg-pick" data-v="' + esc(o[0]) + '">' + esc(o[1]) + '</button>').join('') + '</div>';
 }
 const segVal = (name) => { const b = $('#sheetRoot .seg[data-name="' + name + '"] button.on'); return b ? b.dataset.v : null; };
 const fval = name => { const el = $('#sheetRoot [name="' + name + '"]'); return el ? el.value : ''; };
@@ -1169,7 +1210,7 @@ function card(ic, title, body, go) {
   if (S.tab === 'today' && !S.ink) {
     // Bugün ekranında: boş kartlar gösterilmez, başlıklar açılır-kapanır
     if (/^\s*<div class="empty">[\s\S]*?<\/div>\s*$/.test(body) && !/<div class="empty">[\s\S]*<div class="empty">/.test(body)) return '';
-    const key = go || title, folded = foldGet().includes(key);
+    const key = 'c:' + title, folded = foldGet().includes(key);
     return '<section class="card foldable' + (folded ? ' folded' : '') + '"><div class="card-head"><button class="card-title fold-btn" data-act="card-fold" data-k="' + esc(key) + '" aria-expanded="' + !folded + '">' + icon(ic, 'sm') + '<span class="u">' + esc(title) + '</span><span class="fold-chev">' + icon('down', 'sm') + '</span></button>' +
       (go ? '<button class="icon-btn card-go" data-act="go" data-k="' + go + '" aria-label="Aç">' + icon('right', 'sm') + '</button>' : '') + '</div><div class="card-body">' + body + '</div></section>';
   }
@@ -1312,6 +1353,7 @@ async function saveTask() {
   if ($('#sheetRoot .money-ed')) base.money = readMoney();
   const tsw = $('#sheetRoot .switch[data-name=taskCal]'); if (tsw) base.toCal = tsw.classList.contains('on');
   if (base.rec && !base.due) base.due = today();
+  if (base.rec && base.due && (base.rec.unit === 'month' || base.rec.unit === 'year')) base.rec.anchorDay = +base.due.slice(8, 10);
   closeSheet(); await save(base); Cal.upsertTask(base);
 }
 
@@ -1412,10 +1454,10 @@ function nextOcc(from, rec) {
     if (rec.mode === 'cal' && rec.wdays && rec.wdays.length) { let x = from; for (let i = 0; i < 7 * n + 7; i++) { x = addDays(x, 1); if (rec.wdays.includes(dow(x))) return x; } return addDays(from, 7 * n); }
     d.setDate(d.getDate() + 7 * n);
   } else if (rec.unit === 'month') {
-    const day = rec.mday === 'last' ? 31 : (rec.mode === 'cal' && rec.mday ? +rec.mday : d.getDate());
+    const day = rec.mday === 'last' ? 31 : (rec.mode === 'cal' && rec.mday ? +rec.mday : (rec.mode === 'cal' && rec.anchorDay) || d.getDate()); // anchorDay: ilk tarihin günü (31 → 28 → 28 kaymasın)
     d.setDate(1); d.setMonth(d.getMonth() + n);
     const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(day, last));
-  } else if (rec.unit === 'year') { const m = d.getMonth(), day = d.getDate(); d.setDate(1); d.setFullYear(d.getFullYear() + n); d.setMonth(m); d.setDate(Math.min(day, new Date(d.getFullYear(), m + 1, 0).getDate())); }
+  } else if (rec.unit === 'year') { const m = d.getMonth(), day = (rec.mode === 'cal' && rec.anchorDay) || d.getDate(); d.setDate(1); d.setFullYear(d.getFullYear() + n); d.setMonth(m); d.setDate(Math.min(day, new Date(d.getFullYear(), m + 1, 0).getDate())); }
   else d.setDate(d.getDate() + n);
   return ymd(d);
 }
@@ -1549,6 +1591,7 @@ async function saveRoutine() {
   const rec = readRec(); let last = fval('last') || ''; let next = fval('next'); let until = fval('runtil') || '';
   if (last > today()) { if (!until) until = last; last = ''; }
   if (!next) next = last ? nextOcc(last, rec) : today();
+  if (rec.mode === 'cal' && (rec.unit === 'month' || rec.unit === 'year')) rec.anchorDay = +next.slice(8, 10);
   const cost = parseFloat(fval('cost'));
   const sw = $('#sheetRoot .switch[data-name=toCal]');
   Object.assign(base, { title, rec, next, last, until, time: fval('rtime') || '', remind: readRemind(), cost: isNaN(cost) ? null : cost, notes: fval('notes').trim(), toCal: sw ? sw.classList.contains('on') : !!base.toCal });

@@ -28,7 +28,7 @@ function fcCfgSave(c) { clearTimeout(fcCfgT); fcCfgT = setTimeout(() => tdSet('p
 const FC = Object.assign({ phase: 'work', run: false, end: 0, left: 0, segStart: 0, workMs: 0, round: 0, task: '', gev: null, sub: 'timer', solo: false, askNote: false, stretch: 0, eyeEnd: 0 }, lsj('pusula.fc', {}));
 FC.sub = 'timer'; FC.askNote = false;
 try { Object.defineProperty(PM, 'run', { get: () => FC.run, set: () => {}, configurable: true }); } catch (e) { /* yok */ } // tools.js döngüsü PM.run'a bakar
-const fcSave = () => lsjw('pusula.fc', { phase: FC.phase, run: FC.run, end: FC.end, left: FC.left, segStart: FC.segStart, workMs: FC.workMs, round: FC.round, task: FC.task, gev: FC.gev, brkMin: FC.brkMin });
+const fcSave = () => lsjw('pusula.fc', { phase: FC.phase, run: FC.run, end: FC.end, left: FC.left, segStart: FC.segStart, workMs: FC.workMs, loggedMs: FC.loggedMs || 0, round: FC.round, task: FC.task, gev: FC.gev, brkMin: FC.brkMin });
 const fcFlow = () => fcCfg().method === 'flow';
 function fcDur(ph) {
   const c = fcCfg(), m = c.method;
@@ -43,13 +43,13 @@ const fcIsUp = () => FC.phase === 'work' && fcFlow(); // yukarı sayan akış mo
 if (!FC.left && !fcIsUp()) FC.left = fcDur(FC.phase);
 
 /* ----- kayıt: focusLog[gün] = { m: dakika, n: tur, t: {görev: dk}, h: {saat: dk}, notes: [] } ----- */
-function fcLog(ms, note) {
+function fcLog(ms, partial) { // partial: tur bitmeden yazılan parça (tur sayılmaz)
   const min = Math.round(ms / 60000); if (min < 1) return 0;
   const d = today(), L = tdGet('focusLog', {}); const x = L[d] || (L[d] = { m: 0, n: 0, t: {}, h: {}, notes: [] });
-  x.m += min; x.n++; const h = new Date().getHours(); x.h[h] = (x.h[h] || 0) + min;
+  x.m += min; if (!partial) x.n++; const h = new Date().getHours(); x.h[h] = (x.h[h] || 0) + min;
   if (FC.task) { x.t[FC.task] = (x.t[FC.task] || 0) + min; const t = S.items.get(FC.task); if (t && !t.deleted) { t.focusMin = (t.focusMin || 0) + min; save(t, { silent: true }); } }
   Object.keys(L).sort().slice(0, -400).forEach(k => delete L[k]); tdSet('focusLog', L);
-  const old = tdGet('pomoLog', {}); old[d] = (old[d] || 0) + 1; tdSet('pomoLog', old);
+  if (!partial) { const old = tdGet('pomoLog', {}); old[d] = (old[d] || 0) + 1; tdSet('pomoLog', old); }
   return min;
 }
 function fcAddNote(text) { const d = today(), L = tdGet('focusLog', {}); const x = L[d] || (L[d] = { m: 0, n: 0, t: {}, h: {}, notes: [] }); x.notes = (x.notes || []).concat([{ at: Date.now(), text, task: FC.task || '' }]); tdSet('focusLog', L); }
@@ -70,8 +70,9 @@ function fcPause() {
 }
 function fcEndWork(natural) { // odak turu bitti (süre doldu, atlandı ya da akışta “Mola ver”)
   if (FC.segStart) { FC.workMs += Date.now() - FC.segStart; FC.segStart = 0; }
-  const ms = natural && !fcFlow() ? Math.max(FC.workMs, fcDur('work')) : FC.workMs; // süre dolduysa tam süre
-  const min = fcLog(ms); FC.workMs = 0;
+  const done = FC.loggedMs || 0; // bu turda “Görev bitti” ile önceden yazılan süre
+  const ms = natural && !fcFlow() ? Math.max(FC.workMs, fcDur('work') - done) : FC.workMs; // süre dolduysa turun kalanı
+  const min = fcLog(ms) + Math.round(done / 60000); FC.workMs = 0; FC.loggedMs = 0;
   const c = fcCfg(); FC.round++;
   if (c.method === 'flow') FC.brkMin = Math.max(1, Math.round(min / Math.max(1, c.flowRatio)));
   FC.phase = c.method === 'pomo' && FC.round % (c.pomo.every || 4) === 0 ? 'long' : 'short';
@@ -79,7 +80,7 @@ function fcEndWork(natural) { // odak turu bitti (süre doldu, atlandı ya da ak
   FC.askNote = !!(c.breaks.note && min >= 1);
   return min;
 }
-function fcEndBreak() { FC.phase = 'work'; FC.workMs = 0; FC.left = fcDur('work'); FC.askNote = false; }
+function fcEndBreak() { FC.phase = 'work'; FC.workMs = 0; FC.loggedMs = 0; FC.left = fcDur('work'); FC.askNote = false; }
 function pmTick() { // tools.js döngüsü çağırır
   if (!FC.run) return;
   if (!fcIsUp()) {
@@ -116,7 +117,7 @@ function fcCalSchedule() {
       const at = new Date(Math.round(end / 60000) * 60000), to = new Date(at.getTime() + 5 * 60000);
       const hm = x => pad(x.getHours()) + ':' + pad(x.getMinutes());
       const ev = { title: FC.phase === 'work' ? '⏱ ' + tr('Odak süresi bitti') : '☕ ' + tr('Mola bitti'), date: ymd(at), allDay: false, start: hm(at), end: to.getDate() === at.getDate() ? hm(to) : '23:59', notes: 'PUSULA odak sayacı', remind: [0] };
-      const r = await Cal.insert(Cal.cfg.def, ev); FC.gev = { id: r.id, cal: Cal.cfg.def, at: end }; fcSave();
+      const r = await Cal.insert(Cal.cfg.def, ev); if (!FC.run || FC.end !== end) { Cal.del(Cal.cfg.def, r.id).catch(() => {}); return; } FC.gev = { id: r.id, cal: Cal.cfg.def, at: end }; fcSave(); // bu arada duraklatıldıysa sil
     } catch (e) { console.warn(e); }
   })();
 }
@@ -230,14 +231,14 @@ function fcSetHtml() {
 Object.assign(ACTIONS, {
   'pm-toggle': () => { if (FC.run) fcPause(); else fcStart(); pomoRender(); },
   'pm-skip': () => { const run = FC.run; if (run) fcPause(); fcCalClear(); if (FC.phase === 'work') fcEndWork(false); else fcEndBreak(); if (run) fcStart(); else fcSave(); pomoRender(); },
-  'pm-reset': () => { if (FC.run) fcPause(); if (FC.phase === 'work' && FC.workMs >= 60000) toast(Lx(fmtMin(fcLog(FC.workMs)) + ' kaydedildi', fmtMin(Math.round(FC.workMs / 60000)) + ' logged')); FC.phase = 'work'; FC.round = 0; FC.workMs = 0; FC.askNote = false; FC.left = fcDur('work'); fcCalClear(); fcSave(); pomoRender(); },
+  'pm-reset': () => { if (FC.run) fcPause(); if (FC.phase === 'work' && FC.workMs >= 60000) toast(Lx(fmtMin(fcLog(FC.workMs)) + ' kaydedildi', fmtMin(Math.round(FC.workMs / 60000)) + ' logged')); FC.phase = 'work'; FC.round = 0; FC.workMs = 0; FC.loggedMs = 0; FC.askNote = false; FC.left = fcDur('work'); fcCalClear(); fcSave(); pomoRender(); },
   'fc-flowbreak': () => { const run = FC.run; if (run) fcPause(); const m = fcEndWork(false); toast(Lx(fmtMin(m) + ' odak · ' + fmtMin(FC.brkMin) + ' mola', fmtMin(m) + ' focus · ' + fmtMin(FC.brkMin) + ' break')); FC.left = fcDur(FC.phase); fcStart(); pomoRender(); },
   'fc-sub': el => { FC.sub = el.dataset.k; pomoRender(); },
   'fc-method': el => { if (FC.run && !confirm(tr('Sayaç çalışıyor. Yöntem değişsin mi? (Bu tur sıfırlanır)'))) return; if (FC.run) fcPause(); const c = fcCfg(); c.method = el.dataset.k; tdSet('pomoCfg', c); FC.phase = 'work'; FC.workMs = 0; FC.round = 0; FC.left = fcDur('work'); fcCalClear(); fcSave(); pomoRender(); },
   'fc-solo': () => { if (!FC.solo && !FC.task) { const t = list('task').filter(x => !x.done).sort(taskSort)[0]; if (t) FC.task = t.id; } FC.solo = !FC.solo; FC.sub = 'timer'; fcSave(); pomoRender(); },
-  'fc-taskdone': async () => { const id = FC.task; if (!id) return; if (FC.run && FC.phase === 'work' && FC.segStart) { FC.workMs += Date.now() - FC.segStart; FC.segStart = Date.now(); fcLog(FC.workMs); FC.workMs = 0; } await toggleTask(id); const nx = list('task').filter(x => !x.done && x.id !== id).sort(taskSort)[0]; FC.task = nx ? nx.id : ''; fcSave(); pomoRender(); if (nx) setTimeout(() => toast(Lx('Sıradaki: ' + nx.title, 'Next: ' + nx.title)), 1500); },
+  'fc-taskdone': async () => { const id = FC.task; if (!id) return; if (FC.run && FC.phase === 'work' && FC.segStart) { FC.workMs += Date.now() - FC.segStart; FC.segStart = Date.now(); if (fcLog(FC.workMs, true)) { FC.loggedMs = (FC.loggedMs || 0) + FC.workMs; FC.workMs = 0; } } await toggleTask(id); const nx = list('task').filter(x => !x.done && x.id !== id).sort(taskSort)[0]; FC.task = nx ? nx.id : ''; fcSave(); pomoRender(); if (nx) setTimeout(() => toast(Lx('Sıradaki: ' + nx.title, 'Next: ' + nx.title)), 1500); },
   'fc-note-skip': () => { FC.askNote = false; pomoRender(); },
-  'fc-eye': () => { FC.eyeEnd = Date.now() + 20000; tmStartLoop(); if (!FC.run) { const iv = setInterval(() => { fcPaint(); if (!FC.eyeEnd) clearInterval(iv); }, 250); } pomoRender(); },
+  'fc-eye': () => { FC.eyeEnd = Date.now() + 20000; tmStartLoop(); if (!FC.run) { const iv = setInterval(() => { fcPaint(); if (!FC.eyeEnd || Date.now() > FC.eyeEnd + 1500) { FC.eyeEnd = 0; clearInterval(iv); } }, 250); } pomoRender(); },
   'fc-stretch': () => { FC.stretch++; pomoRender(); },
   'fc-water': async () => { const hb = fcWaterHabit(); if (hb && !(hb.log || {})[today()]) { hb.log = hb.log || {}; hb.log[today()] = true; await save(hb, { silent: true }); } pomoRender(); },
   'fc-sw': el => { const c = fcCfg(), k = el.dataset.k; if (k.startsWith('b:')) c.breaks[k.slice(2)] = !c.breaks[k.slice(2)]; else c[k] = !c[k]; el.classList.toggle('on'); tdSet('pomoCfg', c); fcSound(); },

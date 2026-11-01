@@ -1054,3 +1054,8 @@ body{font-size:calc(16px*var(--fs))}
 .ctr-month .muted{width:100%;text-transform:capitalize}
 .ctr-add-first{display:block;margin:10px 2px 0}
 .ctr-units{margin:-4px 0 8px}
+.bal-list{display:grid;gap:8px;margin-bottom:12px}
+.bal-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px}
+.bal-row .grow{min-width:0}
+.bal-in{width:42%;max-width:180px;text-align:right;font-variant-numeric:tabular-nums}
+.adj-hint{margin-top:6px}

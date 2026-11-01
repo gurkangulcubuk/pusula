@@ -118,16 +118,17 @@ function moneyOnDone(item, kind) {
   return t.id;
 }
 // Görevin tiki elle kaldırılırsa bugün otomatik açılan kaydı da geri al
-function moneyUndoLast(item) { const t = list('tx').filter(x => x.src === 'link' && x.link && x.link.id === item.id && x.date === today()).sort((a, b) => (b.created || 0) - (a.created || 0))[0]; if (t) { moneyUndo(t.id); toast(tr('Bağlı para kaydı da geri alındı')); } }
+function moneyUndoLast(item) { const t = list('tx').filter(x => x.src === 'link' && x.link && x.link.id === item.id).sort((a, b) => (b.created || 0) - (a.created || 0))[0]; if (t) { moneyUndo(t.id); toast(tr('Bağlı para kaydı da geri alındı')); } }
 async function moneyUndo(id) { const t = id && S.items.get(id); if (t && !t.deleted) { await remove(t, { silent: true }); render(); } }
 
 /* ----- düzenli kalemler ----- */
 const regs = () => list('regpay').sort((a, b) => (a.next || '9999').localeCompare(b.next || '9999'));
 const regDue = () => regs().filter(r => r.next && r.next <= today() && r.mode !== 'auto' && !r.paused);
-function regAdvance(r) { if (!r.rec) { r.next = ''; return; } let n = nextOcc(r.next, r.rec); if (r.rec.until && n > r.rec.until) n = ''; r.next = n; }
+function regAdvance(r) { if (!r.rec) { r.next = ''; return; } if (!r.rec.anchorDay && r.next) r.rec.anchorDay = +r.next.slice(8, 10); let n = nextOcc(r.next, r.rec); if (r.rec.until && n > r.rec.until) n = ''; r.next = n; }
 async function regPay(r, skip) {
-  const day = r.next;
-  if (!skip) await save({ id: uid(), type: 'tx', date: day <= today() ? day : today(), dir: r.dir, amount: r.amount, cat: r.cat || defCat(r.dir), acct: r.acct || defAcct(), note: r.title, reg: r.id, src: 'regular' }, { silent: true });
+  const day = r.next; if (r.rec && !r.rec.anchorDay && day) r.rec.anchorDay = +day.slice(8, 10);
+  const tid = 'rp:' + r.id + ':' + day, ex = S.items.get(tid);
+  if (!skip && !(ex && !ex.deleted)) await save({ id: tid, type: 'tx', date: day <= today() ? day : today(), dir: r.dir, amount: r.amount, cat: r.cat || defCat(r.dir), acct: r.acct || defAcct(), note: r.title, reg: r.id, src: 'regular' }, { silent: true });
   regAdvance(r); await save(r, { silent: true }); regMirror(r);
 }
 let mAutoDay = '';
@@ -176,7 +177,7 @@ function viewMSummary() {
   let h = monthNav() + '<div class="m-tiles"><div class="m-tile in"><span>' + tr('Gelir') + '</span><b>' + fmtTL(inc) + '</b></div><div class="m-tile out"><span>' + tr('Gider') + '</span><b>' + fmtTL(exp) + '</b></div><div class="m-tile net ' + (inc - exp >= 0 ? 'pos' : 'neg') + '"><span>' + tr('Net') + '</span><b>' + fmtTL(inc - exp, true) + '</b></div></div>';
   if (pexp > 0 && exp > 0) { const ch = Math.round((exp - pexp) / pexp * 100); h += '<p class="muted sm m-cmp">' + Lx('Gider geçen aya göre ' + (ch >= 0 ? '%' + ch + ' arttı' : '%' + (-ch) + ' azaldı'), 'Spending ' + (ch >= 0 ? 'up ' + ch : 'down ' + (-ch)) + '% vs last month') + '</p>'; }
   const as = accts();
-  if (as.length) h += '<section class="card m-bal" data-act="money-sub" data-k="accounts"><div class="m-bal-row"><span>' + tr('Toplam bakiye') + '</span><b>' + fmtTL(as.reduce((a, x) => a + acctBal(x), 0)) + '</b></div><div class="m-bal-list">' + as.slice(0, 4).map(a => '<span><i style="background:' + (a.color || 'var(--accent)') + '"></i>' + esc(a.name) + ' <b>' + fmtTL(acctBal(a)) + '</b></span>').join('') + '</div></section>';
+  if (as.length) h += '<section class="card m-bal" data-act="bal-update"><div class="m-bal-row"><span>' + tr('Toplam bakiye') + '</span><b>' + fmtTL(as.reduce((a, x) => a + acctBal(x), 0)) + '</b></div><div class="m-bal-list">' + as.slice(0, 4).map(a => '<span><i style="background:' + (a.color || 'var(--accent)') + '"></i>' + esc(a.name) + ' <b>' + fmtTL(acctBal(a)) + '</b></span>').join('') + '</div></section>';
   const due = regDue();
   if (due.length) h += '<div class="section-title"><span>' + tr('Bekleyenler') + '<span class="count">' + due.length + '</span></span></div><div class="card">' + due.map(regRow).join('') + '</div>';
   // gider dağılımı
@@ -246,6 +247,7 @@ function viewAccounts() {
   const tot = as.reduce((a, x) => a + acctBal(x), 0);
   h += '<div class="m-tiles one"><div class="m-tile ' + (tot >= 0 ? 'pos' : 'neg') + '"><span>' + tr('Toplam') + '</span><b>' + fmtTL(tot) + '</b></div></div><div class="card">' +
     as.map(a => { const b = acctBal(a); return '<div class="row acct-row" data-act="acct-edit" data-id="' + a.id + '"><span class="tx-dot" style="background:' + (a.color || 'var(--accent)') + '">' + icon((ACCT_KINDS[a.kind] || ACCT_KINDS.bank)[1], 'xs') + '</span><div class="row-main"><div class="row-title">' + esc(a.name) + (settings().moneyDefAcct === a.id ? ' <span class="badge-s">' + tr('varsayılan') + '</span>' : '') + '</div><div class="row-meta">' + tr((ACCT_KINDS[a.kind] || ACCT_KINDS.bank)[0]) + '</div></div><b class="' + (b >= 0 ? '' : 'neg') + '">' + fmtTL(b) + '</b><button class="icon-btn" data-act="acct-moves" data-id="' + a.id + '" aria-label="Hareketler">' + icon('right', 'sm') + '</button></div>'; }).join('') + '</div>' +
+    '<button class="btn block primary" data-act="bal-update">' + icon('bank', 'sm') + ' <span>' + tr('Bakiyeleri güncelle') + '</span></button>' +
     '<button class="btn block" data-act="xfer-new">' + icon('xfer', 'sm') + ' <span>' + tr('Hesaplar arası transfer') + '</span></button>';
   return h;
 }
@@ -319,7 +321,7 @@ async function saveReg() {
   if (!title) { $('#sheetRoot [name=title]').classList.add('err'); return; }
   if (!(amount > 0)) { $('#sheetRoot [name=amt]').classList.add('err'); return; }
   const base = S.items.get(d.id) || d; const dir = segVal('rDir') || 'out';
-  const rec = readEvRec();
+  const rec = readEvRec(); if (rec && fval('next')) rec.anchorDay = +fval('next').slice(8, 10);
   const sw = n => { const el = $('#sheetRoot .switch[data-name=' + n + ']'); return el ? el.classList.contains('on') : undefined; };
   Object.assign(base, { title, dir, amount, cat: fval('rCat') || defCat(dir), acct: fval('acct') || '', rec, next: fval('next') || today(), time: fval('rtime') || '', mode: segVal('rMode') || 'ask', remind: readRemind() });
   if (sw('rCal') !== undefined) base.toCal = sw('rCal'); if (sw('rPause') !== undefined) base.paused = sw('rPause');
@@ -343,8 +345,9 @@ async function saveAcct() {
   const d = S.draft; const name = fval('name').trim(); if (!name) { $('#sheetRoot [name=name]').classList.add('err'); return; }
   const base = S.items.get(d.id) || d; const bal = parseTL(fval('opening')) || 0; const od = fval('openDate') || today();
   Object.assign(base, { name, kind: segVal('aKind') || 'bank', color: d.color || '' });
-  // istenen bakiyeyi, o tarihten sonraki hareketleri hesaba katarak açılış bakiyesine çevir
-  base.openDate = od; base.opening = 0; const after = acctBal(Object.assign({}, base, { opening: 0, openDate: od })); base.opening = Math.round((bal - after) * 100) / 100;
+  const same = S.items.get(d.id) && Math.abs(bal - acctBal(S.items.get(d.id))) < 0.005 && od === today();
+  if (!same) { // istenen bakiyeyi, o tarihten sonraki hareketleri hesaba katarak açılış bakiyesine çevir
+  base.openDate = od; base.opening = 0; const after = acctBal(Object.assign({}, base, { opening: 0, openDate: od })); base.opening = Math.round((bal - after) * 100) / 100; }
   const def = $('#sheetRoot .switch[data-name=aDef]'); const st = settings();
   if (def && def.classList.contains('on')) st.moneyDefAcct = base.id; else if (st.moneyDefAcct === base.id) st.moneyDefAcct = '';
   closeSheet(); await save(st, { silent: true }); await save(base);
@@ -365,6 +368,7 @@ function parseBulkLine(line, baseDate) {
   return { date, dir, amount, note: note ? note.charAt(0).toLocaleUpperCase('tr-TR') + note.slice(1) : '', cat, ok: amount > 0 };
 }
 function openBulk() {
+  IMP = null;
   openSheet(sheetHead('Toplu yaz') + '<div class="sheet-body"><p class="muted sm" style="margin-top:0">Her satıra bir kayıt yaz. Başına + koyarsan gelir sayılır; “dün”, “12.10” gibi tarih de yazabilirsin. Kategoriyi kelimeden tahmin ederim, kaydetmeden önce gösteririm.</p>' +
     '<textarea class="input mono" id="bulkText" rows="8" placeholder="market 450&#10;benzin 1.200&#10;dün kafe 180&#10;+35.000 maaş&#10;12.10 elektrik faturası 890"></textarea>' +
     '<div class="field-row"><label class="field"><span>Tarih (yazılmayanlar için)</span><input type="date" class="input" name="bDate" value="' + today() + '"></label>' + (accts().length ? '<label class="field"><span>Hesap</span><select class="input" name="bAcct">' + acctOptions(defAcct(), true) + '</select></label>' : '') + '</div>' +
@@ -428,7 +432,7 @@ async function handleImportFile(f) {
   const map = $('#impMap'); if (!map) return; map.innerHTML = '<div class="empty">' + tr('Okunuyor…') + '</div>';
   try {
     const buf = await f.arrayBuffer(); let rows;
-    if (/\.(xlsx|xls)$/i.test(f.name)) { await loadXLSX(); const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true }); const ws = wb.Sheets[wb.SheetNames[0]]; rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }); }
+    if (/\.(xlsx|xls)$/i.test(f.name)) { await loadXLSX(); const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: false }); const ws = wb.Sheets[wb.SheetNames[0]]; rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }); }
     else { let text; try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { text = new TextDecoder('windows-1254').decode(buf); } rows = parseCSV(text.replace(/^﻿/, '')); }
     if (!rows.length) throw new Error(tr('Dosyada satır bulunamadı'));
     const hi = detectHeader(rows); const hdr = rows[hi].map(x => String(x || '').trim());

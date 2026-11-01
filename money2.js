@@ -140,3 +140,47 @@ Object.assign(ACTIONS, {
     'Bir kez tanımla, sonra her seferinde +1’e dokun. Aynı günün kayıtları tek satırda toplanır (ör. Sigara · 3 paket).': 'Set it once, then tap +1 each time. A day’s entries add up in one line (e.g. Coffee · 3 cups).', 'Örn. Sigara, Kahve, Çay': 'E.g. Coffee, Tea', 'Birim fiyat (₺)': 'Unit price (₺)', 'Birim': 'Unit', 'Sayaçlı harcamalar (+1 düğmeleri)': 'Counter spending (+1 buttons)' };
   for (const k in add) if (!(k in EN)) EN[k] = add[k];
 })();
+
+/* ===================== Bakiyeyi elle güncelleme ===================== */
+/* Bankadaki gerçek bakiyeyi yaz; fark ya "Bakiye düzeltmesi" gider/geliri olarak kaydedilir (aylık toplamlar doğru kalır)
+   ya da sadece açılış bakiyesi kaydırılır (geçmiş dokunulmaz). */
+function adjCat(dir) {
+  const st = settings(), cs = mcats(), id = dir === 'in' ? 'adjin' : 'adj';
+  if (!cs.find(c => c.id === id)) { cs.push({ id, dir, name: tr('Bakiye düzeltmesi'), color: '#8B8D98', kw: '' }); st.moneyCats = cs; save(st, { silent: true }); }
+  return id;
+}
+function openBalUpdate(only) {
+  const as = accts().filter(a => !only || a.id === only); if (!as.length) return toast(tr('Önce bir hesap ekle'));
+  const mode = settings().moneyAdjMode || 'tx';
+  openSheet(sheetHead('Bakiyeleri güncelle') + '<div class="sheet-body"><p class="muted sm" style="margin-top:0">' + tr('Bankanın uygulamasındaki güncel bakiyeyi yaz; her harcamayı tek tek girmen gerekmez. Boş bıraktıkların değişmez.') + '</p>' +
+    '<div class="bal-list">' + as.map(a => { const b = acctBal(a); return '<div class="bal-row" data-id="' + a.id + '"><div class="grow"><div class="u"><b>' + esc(a.name) + '</b></div><div class="muted sm">' + tr('Uygulamada') + ': ' + fmtTL(b) + ' <span class="bal-diff"></span></div></div><input class="input bal-in" inputmode="decimal" data-cur="' + b + '" placeholder="' + esc(String(b).replace('.', ',')) + '" autocomplete="off"></div>'; }).join('') + '</div>' +
+    '<div class="field"><span>' + tr('Farkı nasıl kaydedeyim?') + '</span>' + seg('adjMode', [['tx', 'Harcama/gelir olarak'], ['silent', 'Sadece bakiyeyi düzelt']], mode) +
+    '<div class="sub muted sm adj-hint">' + tr('Harcama olarak: fark “Bakiye düzeltmesi” kaydı olur, bu ayın giderine/gelirine eklenir. Sadece düzelt: bakiye değişir, aylık toplamlar etkilenmez.') + '</div></div>' +
+    '</div><div class="sheet-foot"><button class="btn primary" data-act="bal-save">' + tr('Güncelle') + '</button></div>');
+  setTimeout(() => { const i = $('#sheetRoot .bal-in'); if (i) i.focus(); }, 80);
+}
+document.addEventListener('input', e => {
+  if (!e.target.classList || !e.target.classList.contains('bal-in')) return;
+  const row = e.target.closest('.bal-row'), d = row && row.querySelector('.bal-diff'); const v = parseTL(e.target.value), cur = +e.target.dataset.cur;
+  if (d) { const df = isNaN(v) ? 0 : Math.round((v - cur) * 100) / 100; d.textContent = df ? '· ' + tr('fark') + ' ' + fmtTL(df, true) : ''; d.className = 'bal-diff ' + (df < 0 ? 'neg' : df > 0 ? 'pos' : ''); }
+});
+async function saveBalUpdate() {
+  const mode = segVal('adjMode') || 'tx'; let n = 0; const st = settings(); st.moneyAdjMode = mode;
+  for (const inp of $$('#sheetRoot .bal-in')) {
+    const v = parseTL(inp.value); if (isNaN(v)) continue; const a = S.items.get(inp.closest('.bal-row').dataset.id); if (!a) continue;
+    const df = Math.round((v - acctBal(a)) * 100) / 100; if (!df) continue; n++;
+    if (mode === 'tx') { const dir = df < 0 ? 'out' : 'in'; await save({ id: uid(), type: 'tx', date: today(), dir, amount: Math.abs(df), cat: adjCat(dir), acct: a.id, note: tr('Bakiye düzeltmesi'), src: 'adjust' }, { silent: true }); }
+    else { a.opening = Math.round(((+a.opening || 0) + df) * 100) / 100; await save(a, { silent: true }); }
+  }
+  closeSheet(); await save(st); toast(n ? Lx(n + ' hesabın bakiyesi güncellendi', n + ' balances updated') : tr('Değişiklik yok'));
+}
+Object.assign(ACTIONS, {
+  'bal-update': el => openBalUpdate(el.dataset && el.dataset.id),
+  'bal-save': () => saveBalUpdate()
+});
+(function () {
+  const add = { 'Bakiyeleri güncelle': 'Update balances', 'Bakiye düzeltmesi': 'Balance adjustment', 'Bankanın uygulamasındaki güncel bakiyeyi yaz; her harcamayı tek tek girmen gerekmez. Boş bıraktıkların değişmez.': 'Type the current balance from your bank app; no need to enter every expense. Empty ones stay the same.',
+    'Uygulamada': 'In app', 'fark': 'diff', 'Farkı nasıl kaydedeyim?': 'How should the difference be recorded?', 'Harcama/gelir olarak': 'As spending/income', 'Sadece bakiyeyi düzelt': 'Just fix the balance', 'Güncelle': 'Update', 'Değişiklik yok': 'No changes',
+    'Harcama olarak: fark “Bakiye düzeltmesi” kaydı olur, bu ayın giderine/gelirine eklenir. Sadece düzelt: bakiye değişir, aylık toplamlar etkilenmez.': 'As spending: the difference becomes a “Balance adjustment” entry in this month’s totals. Just fix: the balance changes, monthly totals don’t.' };
+  for (const k in add) if (!(k in EN)) EN[k] = add[k];
+})();

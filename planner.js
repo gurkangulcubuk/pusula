@@ -94,6 +94,7 @@ function remDue() { // şu an çalması gereken hatırlatmalar
     if (Cal.on()) Cal.forDate(d).forEach(e => { if (!e.allDay && e.start && e.remind) push(e.gid, e.title, d, e.start, e.remind, 'gev'); });
     list('routine').forEach(r => { if (r.time && routineOn(r, d)) push(r.id, r.title, d, r.time, r.remind, 'rt'); });
     list('task').forEach(t => { if (!t.done && t.due === d && t.time) push(t.id, t.title, d, t.time, t.remind, 'task'); });
+    if (typeof regs === 'function') regs().forEach(r => { if (r.time && !r.paused && r.next === d) push(r.id, r.title + ' · ' + fmtTL(r.amount), d, r.time, r.remind, 'pay'); });
   }
   REM_SNOOZE.splice(0).forEach(x => { if (x.at <= now) out.push(x.r); else REM_SNOOZE.push(x); });
   return out;

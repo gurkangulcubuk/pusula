@@ -66,7 +66,7 @@ function bkDay() {
 }
 const bkCfg = () => Object.assign({ time: 60 }, tdGet('bkbi.cfg', {}));
 async function openBkbi() {
-  toolSheet(T_('Bir Kelime Bir İşlem'), '<div id="bkWrap"><div class="empty">' + tr('Kelimeler yükleniyor…') + '</div></div>', () => { clearInterval(bkIv); if (BK && BK.mode === 'day') playSave('bkbi.day', BK.day, true); });
+  toolSheet(T_('Bir Kelime Bir İşlem'), '<div id="bkWrap"><div class="empty">' + tr('Kelimeler yükleniyor…') + '</div></div>', () => { clearInterval(bkIv); }); // günlük sonuç her tur bitişinde birleştirilerek yazılır; kapatınca yazmaz
   try { await bkWords(); } catch (e) { const w = $('#bkWrap'); if (w) w.innerHTML = '<div class="empty">' + tr('Kelime listesi yüklenemedi; bir kez internete bağlıyken aç.') + '</div>'; return; }
   BK = { view: 'home', day: bkDay() }; bkRender();
 }
@@ -142,7 +142,7 @@ function bkSubmit(timeout) {
   }
   BK.res.score && beep(1, 990);
   if (BK.mode === 'day') {
-    const d = BK.day; d.rounds[BK.idx][BK.part] = { score: BK.res.score };
+    const d = bkDay(); d.rounds[BK.idx][BK.part] = d.rounds[BK.idx][BK.part] || { score: BK.res.score }; BK.day = d; // diğer cihazın sonuçlarıyla birleştir
     const tot = d.rounds.reduce((a, r) => a + (r.k ? r.k.score : 0) + (r.i ? r.i.score : 0), 0);
     playSave('bkbi.day', d, true);
     if (d.rounds.every(r => r.k && r.i)) { const st = gStats('bkbi', { played: 0, best: 0, hist: [] }); if (!st.hist.some(h => h.d === d.date)) { st.played++; st.best = Math.max(st.best || 0, tot); st.hist.push({ d: d.date, s: tot }); gStatsSave('bkbi', st); } }
@@ -217,7 +217,7 @@ function nnGen(n) {
 let NN = null, nnIv = null;
 function openNono() {
   const t = tdGet('nono', null); if (t && t.sol && !t.done) NN = t;
-  toolSheet(T_('Nonogram'), '<div id="nnWrap"></div>', () => { if (NN) { nnAcc(); playSave('nono', NN, true); } clearInterval(nnIv); });
+  toolSheet(T_('Nonogram'), '<div id="nnWrap"></div>', () => { if (NN && NN._chg) { nnAcc(); NN._chg = false; playSave('nono', NN, true); } clearInterval(nnIv); });
   if (!NN) NN = { mode: 'fill', size: 10 }; if (!NN.sol) nnNew(NN.size || 10); else { NN.start = Date.now(); nnRender(); }
   clearInterval(nnIv); nnIv = setInterval(() => { const el = $('#nnTime'); if (!el) return clearInterval(nnIv); if (NN && !NN.done) el.textContent = fmtClock((NN.acc || 0) + Date.now() - NN.start); }, 1000);
 }
@@ -271,7 +271,7 @@ document.addEventListener('pointermove', e => {
 });
 document.addEventListener('pointerup', () => { if (!nnDrag) return; nnDrag = null; playSave('nono', NN); nnRender(); nnCheckWin(); });
 document.addEventListener('pointercancel', () => { if (nnDrag) { nnDrag = null; nnRender(); } });
-function nnSet(r, c, v, quiet) { NN.grid[r][c] = v; const el = $('#nnGrid .nn-c[data-r="' + r + '"][data-c="' + c + '"]'); if (el) { el.classList.toggle('f', v === 1); el.classList.toggle('x', v === 2); } if (!quiet && navigator.vibrate) navigator.vibrate(8); }
+function nnSet(r, c, v, quiet) { NN.grid[r][c] = v; NN._chg = true; const el = $('#nnGrid .nn-c[data-r="' + r + '"][data-c="' + c + '"]'); if (el) { el.classList.toggle('f', v === 1); el.classList.toggle('x', v === 2); } if (!quiet && navigator.vibrate) navigator.vibrate(8); }
 Object.assign(ACTIONS, {
   'nn-mode': el => { NN.mode = el.dataset.k; nnRender(); },
   'nn-size': el => { const n = +el.dataset.n; if (NN && NN.sol && !NN.done && NN.grid.some(r => r.some(v => v)) && !confirm(tr('Yarım kalan bulmaca silinsin mi?'))) return; nnNew(n); },
