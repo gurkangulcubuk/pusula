@@ -133,7 +133,7 @@ const Mail = {
       if (top) this.top = (await gmPool((top.messages || []).map(x => x.id), 3, id => this.meta(id))).filter(Boolean);
       lsSet('pusula.gmImp', String(this.important)); lsSet('pusula.gmUnread', String(this.unread));
       const after = this.important + '|' + this.unread + '|' + this.top.map(x => x.id).join();
-      if (before !== after && !$('#sheetRoot.open')) render();
+      if (before !== after && !$('#sheetRoot.open')) bgRender();
     } catch (e) { console.warn(e); }
   }
 };

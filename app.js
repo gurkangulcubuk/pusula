@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.21.0';
+const VERSION = '1.21.1';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -478,6 +478,22 @@ const Drive = {
     }
     return r;
   },
+  async merge(f) { // uzak dosyayı kayıt kayıt birleştir; yerelde daha yeni ya da uzakta olmayanları yeniden yüklemeye işaretle
+    const r = await this.api('https://www.googleapis.com/drive/v3/files/' + f.id + '?alt=media');
+    const data = await r.json(), toPut = [], seen = new Set(); let changed = false;
+    (data.items || []).forEach(it => {
+      if (!it || !it.id || !it.type) return; seen.add(it.id);
+      const loc = S.items.get(it.id);
+      if (it.id === 'settings' && loc) { // alan alan birleştir
+        const m = setMerge(loc, it); if (JSON.stringify(setFlat(m.rec)) === JSON.stringify(setFlat(loc))) { if (m.up && !loc._dd) { loc._dd = 1; toPut.push(loc); } return; }
+        if (m.up) m.rec._dd = 1; S.items.set('settings', m.rec); S.setSnap = setFlat(m.rec); S.setSnapFor = m.rec; toPut.push(m.rec); changed = true; return;
+      }
+      if (!loc || (it.updated || 0) > (loc.updated || 0)) { delete it._dirty; delete it._dd; S.items.set(it.id, it); toPut.push(it); changed = true; }
+      else if ((loc.updated || 0) > (it.updated || 0) && !loc._dd) { loc._dd = 1; toPut.push(loc); }
+    });
+    S.items.forEach(it => { if (!seen.has(it.id) && !it._dd && (it.type !== 'settings' || it.updated)) { it._dd = 1; toPut.push(it); } });
+    await DB.putMany(toPut); return changed;
+  },
   async findFile() {
     const q = encodeURIComponent("name='" + GDRIVE_FILE + "' and trashed=false");
     const r = await this.api('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=' + q + '&fields=files(id,modifiedTime)&orderBy=modifiedTime%20desc&pageSize=5');
@@ -496,7 +512,12 @@ const Drive = {
     const r = await this.api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body: multi });
     return r.json();
   },
-  schedule(d) { if (!this.on() || !this.tokenOk(GSCOPE)) return; clearTimeout(this.timer); this.timer = setTimeout(() => this.run(false), d == null ? 4000 : d); },
+  schedule(d) { // art arda kayıtlarda bekleme uzar ama ilk kayıttan en geç 15 sn sonra yüklenir
+    if (!this.on() || !this.tokenOk(GSCOPE)) return; clearTimeout(this.timer);
+    const now = Date.now(); if (!this.first) this.first = now; let w = d == null ? 4000 : d; w = Math.max(0, Math.min(w, this.first + 15000 - now));
+    this.timer = setTimeout(() => { this.first = 0; this.run(false); }, w);
+  },
+  flushNow() { let n = 0; S.items.forEach(it => { if (it._dd) n++; }); if (n && this.on() && this.tokenOk(GSCOPE) && navigator.onLine) { clearTimeout(this.timer); this.first = 0; this.run(false); } },
   setStatus(st, err) {
     this.status = st; this.error = err || '';
     if (st === 'ok') this.lastOk = new Date();
@@ -514,31 +535,21 @@ const Drive = {
     }
     this.busy = true; this.setStatus('syncing');
     try {
-      const f = await this.findFile(); let changed = false;
-      if (f && f.modifiedTime !== this.cfg.lastRemote) {
-        const r = await this.api('https://www.googleapis.com/drive/v3/files/' + f.id + '?alt=media');
-        const data = await r.json(); const toPut = [];
-        (data.items || []).forEach(it => {
-          if (!it || !it.id || !it.type) return;
-          const loc = S.items.get(it.id);
-          if (it.id === 'settings' && loc) { // alan alan birleştir
-            const m = setMerge(loc, it); if (JSON.stringify(setFlat(m.rec)) === JSON.stringify(setFlat(loc))) { if (m.up) loc._dd = 1; return; }
-            if (m.up) m.rec._dd = 1; S.items.set('settings', m.rec); S.setSnap = setFlat(m.rec); S.setSnapFor = m.rec; toPut.push(m.rec); changed = true; return;
-          }
-          if (!loc || (it.updated || 0) > (loc.updated || 0)) { delete it._dirty; delete it._dd; S.items.set(it.id, it); toPut.push(it); changed = true; }
-        });
-        await DB.putMany(toPut);
-      }
-      const dirty = []; S.items.forEach(it => { if (it._dd) dirty.push([it.id, it.updated]); });
-      if (!f || dirty.length) {
+      let f = await this.findFile(), changed = false;
+      for (let pass = 0; pass < 3; pass++) {
+        if (f && f.modifiedTime !== this.cfg.lastRemote) { if (await this.merge(f)) changed = true; this.cfg.lastRemote = f.modifiedTime; }
+        const dirty = []; S.items.forEach(it => { if (it._dd) dirty.push([it.id, it.updated]); });
+        if (f && !dirty.length) break;
+        if (f && pass < 2) { const f2 = await this.findFile(); if (f2 && f2.modifiedTime !== f.modifiedTime) { f = f2; continue; } } // arada diğer cihaz yazdıysa önce onu birleştir
         const res = await this.upload(f && f.id);
         this.cfg.fileId = res.id; this.cfg.lastRemote = res.modifiedTime;
         const clean = []; dirty.forEach(x => { const cur = S.items.get(x[0]); if (cur && cur.updated === x[1]) { delete cur._dd; clean.push(cur); } });
-        await DB.putMany(clean);
-      } else if (f) this.cfg.lastRemote = f.modifiedTime;
+        await DB.putMany(clean); break;
+      }
       this.cfg.lastOk = Date.now(); await this.saveCfg();
       this.setStatus('ok');
-      if (changed) { thumbCache.clear(); if (!S.ink && !S.noteEd) render(); else applyTheme(); }
+      if (!this.sessOk) { this.sessOk = true; if (typeof moneyAuto === 'function') setTimeout(moneyAuto, 300); }
+      if (changed) { thumbCache.clear(); if (!S.ink && !S.noteEd) bgRender(); else applyTheme(); }
     } catch (e) {
       console.warn(e);
       this.setStatus(e.auth ? 'needauth' : (navigator.onLine ? 'error' : 'offline'), e.message);
@@ -577,9 +588,12 @@ async function gSync(interactive) {
   if (!Drive.on() && !Cal.on() && !gm) return;
   if (!navigator.onLine) { if (Drive.on()) Drive.setStatus('offline'); return; }
   if (gNeedsToken()) {
-    if (!interactive) {
-      if (Drive.on()) Drive.setStatus('needauth'); if (Cal.on()) Cal.setStatus('needauth');
+    if (!interactive) { // izni geçerli olan servisler yine eşitlensin; eksik olan tek izin hepsini durdurmasın
+      const dOk = Drive.on() && Drive.tokenOk(GSCOPE), cOk = Cal.on() && Drive.tokenOk(GCAL_SCOPE);
+      if (Drive.on() && !dOk) Drive.setStatus('needauth'); if (Cal.on() && !cOk) Cal.setStatus('needauth');
       if (!Drive.nagged) { Drive.nagged = true; toast('Google ile eşitlemek için dokun', { label: 'Eşitle', fn: () => gSync(true) }, 10000); }
+      if (dOk) await Drive.run(false); if (cOk) await Cal.sync();
+      if (gm && Drive.tokenOk(Mail.scopes()[0])) await Mail.refreshCounts();
       return;
     }
     try { await Drive.requestToken(); } catch (e) { toast(e.message); return; }
@@ -669,6 +683,8 @@ const Cal = {
   async patch(calId, gid, ev) { const r = await Drive.api(CAL_API + '/calendars/' + encodeURIComponent(calId) + '/events/' + encodeURIComponent(gid), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.body(ev)) }); return r.json(); },
   async del(calId, gid) { try { await Drive.api(CAL_API + '/calendars/' + encodeURIComponent(calId) + '/events/' + encodeURIComponent(gid), { method: 'DELETE' }); } catch (e) { if (e.status !== 404 && e.status !== 410) throw e; } },
   // Rutin tarihini takvime yaz (tüm gün etkinlik)
+  // Ağ çağrısı sürerken Drive diğer cihazın sürümünü getirdiyse eski nesneyi kaydedip onu ezme: güncel kayda yalnız takvim bağını taşı
+  fresh(o) { const c = S.items.get(o.id); if (!c || c === o) return o; c.gev = o.gev; if ('rr' in o) c.rr = o.rr; if (!c.deleted) c._calPending = 1; return c; },
   async upsertRoutine(r) {
     if (!this.on() || this.cfg.routines === false || !r.toCal) return;
     if (!this.ready() || !this.cfg.def) { r._calPending = 1; return; }
@@ -677,7 +693,7 @@ const Cal = {
     try {
       if (r.gev && r.gev.id) { try { await this.patch(r.gev.cal, r.gev.id, ev); } catch (e) { if (e.status === 404 || e.status === 410) r.gev = null; else throw e; } }
       if (!r.gev || !r.gev.id) { const res = await this.insert(this.cfg.def, ev); r.gev = { id: res.id, cal: this.cfg.def }; }
-      delete r._calPending; r.rr = 2; await save(r, { silent: true });
+      delete r._calPending; r.rr = 2; await save(this.fresh(r), { silent: true });
     } catch (e) { console.warn(e); r._calPending = 1; }
   },
   // Görevi takvime yaz: tarihi olan, bitmemiş görev tek etkinlik olarak durur; tamamlanınca silinir, tekrarlıysa sonraki tarihe taşınır
@@ -686,14 +702,16 @@ const Cal = {
     const want = t.toCal !== false && (t.toCal || this.cfg.tasks !== false) && t.due && !t.done && !t.deleted;
     if (!this.ready() || !this.cfg.def) { if (want || t.gev) { t._calPending = 1; save(t, { silent: true }); } return; }
     try {
-      if (!want) { if (t.gev && t.gev.id) { await this.del(t.gev.cal, t.gev.id); t.gev = null; } delete t._calPending; await save(t, { silent: true }); return; }
+      if (!want) { if (t.gev && t.gev.id) { await this.del(t.gev.cal, t.gev.id); t.gev = null; } delete t._calPending; await save(this.fresh(t), { silent: true }); return; }
       const ev = { title: t.title, date: t.due, allDay: !t.time, start: t.time || '', end: '', notes: 'PUSULA görevi' + (t.notes ? '\n' + t.notes : ''), remind: t.time ? (t.remind || []) : null };
       if (t.gev && t.gev.id) { try { await this.patch(t.gev.cal, t.gev.id, ev); } catch (e) { if (e.status === 404 || e.status === 410) t.gev = null; else throw e; } }
       if (!t.gev || !t.gev.id) { const res = await this.insert(this.cfg.def, ev); t.gev = { id: res.id, cal: this.cfg.def }; }
-      delete t._calPending; await save(t, { silent: true });
-    } catch (e) { console.warn(e); t._calPending = 1; save(t, { silent: true }); }
+      delete t._calPending; await save(this.fresh(t), { silent: true });
+    } catch (e) { console.warn(e); t._calPending = 1; save(this.fresh(t), { silent: true }); }
   },
   async flushRoutines() {
+    // Silinmiş ama takvim etkinliği kalmış kayıtlar (çevrimdışı/izin yokken silinenler, diğer cihazda silinenler)
+    for (const it of [...S.items.values()]) if (it.deleted && it.gev && it.gev.id && /^(routine|regpay|task)$/.test(it.type)) { try { await this.del(it.gev.cal, it.gev.id); it.gev = null; await save(it, { silent: true }); } catch (e) { console.warn(e); } }
     for (const t of S.items.values()) if (t.type === 'task' && t._calPending) await this.upsertTask(t); for (const r of list('routine')) if (r.toCal && (r._calPending || (r.gev && r.rec && r.rec.mode === 'cal' && r.rr !== 2))) await this.upsertRoutine(r); }, // rr=2: Google'da tekrarlı etkinlik olarak yazıldı
   async sync() {
     if (!this.ready() || this.busy) { if (this.on() && !this.ready() && navigator.onLine) this.setStatus('needauth'); return; }
@@ -701,10 +719,11 @@ const Cal = {
     try {
       if (!this.cals().length) await this.listCalendars();
       const months = new Set([today().slice(0, 7), (S.calMonth || today().slice(0, 7))]);
+      const sig = () => { try { return JSON.stringify(this.byDate); } catch (e) { return ''; } }, b4 = sig();
       for (const m of months) await this.fetchMonth(m);
       await this.flushRoutines();
       this.setStatus('ok');
-      if (!S.ink && !S.noteEd && !$('#sheetRoot').classList.contains('open') && (S.tab === 'today' || (S.tab === 'plan' && S.planSub === 'calendar'))) render();
+      if (sig() !== b4 && !S.ink && !S.noteEd && !$('#sheetRoot').classList.contains('open') && (S.tab === 'today' || (S.tab === 'plan' && S.planSub === 'calendar'))) bgRender();
     } catch (e) { console.warn(e); this.setStatus(e.auth ? 'needauth' : 'error', e.message); }
     finally { this.busy = false; }
   }
@@ -1017,6 +1036,15 @@ function visibleTabs() {
 }
 const TAB_KEYS = ['today', 'plan', 'info', 'tools', 'settings'];
 const subTitle = k => k && k.startsWith('c:') ? ((cmod(k.slice(2)) || {}).name || '') : T(k);
+/* Arka plandan gelen yenileme: kullanıcı #view içinde yazıyorsa yazdığını silme, odaktan çıkınca yenile */
+function bgRender() {
+  const a = document.activeElement;
+  if (a && a.closest && a.closest('#view') && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|range)$/.test(a.type)))) {
+    if (!bgRender.wait) { bgRender.wait = 1; a.addEventListener('blur', () => { bgRender.wait = 0; setTimeout(() => { if (!S.ink && !S.noteEd) bgRender(); }, 200); }, { once: true }); }
+    return;
+  }
+  render();
+}
 function render() {
   applyTheme();
   const tabs = visibleTabs();
@@ -1355,6 +1383,7 @@ async function saveTask() {
   const tsw = $('#sheetRoot .switch[data-name=taskCal]'); if (tsw) base.toCal = tsw.classList.contains('on');
   if (base.rec && !base.due) base.due = today();
   if (base.rec && base.due && (base.rec.unit === 'month' || base.rec.unit === 'year')) base.rec.anchorDay = +base.due.slice(8, 10);
+  if (base.deleted) base.deleted = false; // düzenlerken diğer cihazda silindiyse: son düzenleme kazanır, kayıt kaybolmaz
   closeSheet(); await save(base); Cal.upsertTask(base);
 }
 
@@ -1870,7 +1899,7 @@ async function restoreSnapshot(id) {
   if (!ask('Veriler bu yedekteki hâline dönecek. Şu anki hâlin de ayrıca yedeklenecek. Devam edilsin mi?')) return;
   await autoSnapshot(true, 'Geri yüklemeden önce');
   const ids = new Set(data.items.map(i => i.id)); const now = Date.now(); const toPut = [];
-  data.items.forEach(it => { const o = Object.assign({}, it, { updated: now, deleted: false, _dd: 1 }); S.items.set(o.id, o); toPut.push(o); });
+  data.items.forEach(it => { const o = Object.assign({}, it, { updated: now, deleted: false, _dd: 1 }); if (o.id === 'settings') { o._ft = {}; Object.keys(setFlat(o)).forEach(k => { o._ft[k] = now; }); S.setSnap = setFlat(o); S.setSnapFor = o; } S.items.set(o.id, o); toPut.push(o); });
   S.items.forEach(it => { if (!ids.has(it.id) && !it.deleted && it.type !== 'settings') { it.deleted = true; it.updated = now; it._dd = 1; toPut.push(it); } });
   await DB.putMany(toPut); thumbCache.clear(); Drive.schedule(500);
   closeSheet(); render(); toast('Yedek geri yüklendi');
@@ -2158,7 +2187,7 @@ async function init() {
   window.addEventListener('online', () => gSync(false));
   window.addEventListener('offline', () => Drive.on() && Drive.setStatus('offline'));
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') { if (S.ink) inkPersist(); if (S.noteEd) noteSave(); return; }
+    if (document.visibilityState !== 'visible') { if (S.ink) inkPersist(); if (S.noteEd) noteSave(); if (typeof playFlush === 'function') playFlush(); setTimeout(() => Drive.flushNow(), 50); return; }
     gSync(false);
     if (navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {});
     if (S.lastDay !== today()) { autoSnapshot(); S.lastDay = today(); S.calSel = today(); S.calMonth = null; if (!S.ink && !S.noteEd) render(); }

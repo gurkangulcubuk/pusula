@@ -133,7 +133,9 @@ async function regPay(r, skip) {
 }
 let mAutoDay = '';
 async function moneyAuto() { // otomatik kalemleri günü gelince kaydet (kaçırılan günler dahil)
-  if (mAutoDay === today() || !S.items.size) return; mAutoDay = today(); let n = 0;
+  if (mAutoDay === today() || !S.items.size) return;
+  if (Drive.on() && !Drive.sessOk) return; // önce Drive'dan güncel hali gelsin; yoksa diğer cihazda silinen kalem geri dirilir
+  mAutoDay = today(); let n = 0;
   for (const r of regs()) { if (r.mode !== 'auto' || r.paused) continue; let g = 0; while (r.next && r.next <= today() && g++ < 60) { await regPay(r); n++; } }
   if (n) { toast(Lx(n + ' düzenli kalem Cüzdan’a kaydedildi', n + ' regular items recorded')); render(); }
 }
@@ -143,10 +145,11 @@ function regMirror(r) { // Google Takvim'e yaz (bir sonraki tarih, hatırlatmayl
   (async () => {
     if (!Cal.ready() || !Cal.cfg.def) return;
     try {
-      if (!want) { if (r.gev && r.gev.id) { await Cal.del(r.gev.cal, r.gev.id); r.gev = null; await save(r, { silent: true }); } return; }
+      if (!want) { if (r.gev && r.gev.id) { await Cal.del(r.gev.cal, r.gev.id); r.gev = null; const c = S.items.get(r.id); if (c && c !== r) { c.gev = null; r = c; } await save(r, { silent: true }); } return; }
       const ev = { title: (r.dir === 'in' ? '💰 ' : '💸 ') + r.title + ' · ' + fmtTL(r.amount), date: r.next, allDay: !r.time, start: r.time || '', end: '', notes: 'PUSULA ödemesi', remind: r.time ? (r.remind || []) : null };
       if (r.gev && r.gev.id) { try { await Cal.patch(r.gev.cal, r.gev.id, ev); } catch (e) { if (e.status === 404 || e.status === 410) r.gev = null; else throw e; } }
       if (!r.gev || !r.gev.id) { const res = await Cal.insert(Cal.cfg.def, ev); r.gev = { id: res.id, cal: Cal.cfg.def }; }
+      const c = S.items.get(r.id); if (c && c !== r) { c.gev = r.gev; r = c; }
       await save(r, { silent: true });
     } catch (e) { console.warn(e); }
   })();
