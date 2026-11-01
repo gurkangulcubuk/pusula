@@ -96,7 +96,7 @@ async function pushAll(env, rec, msg) { // kayıtlı tüm cihazlara; ölü abone
 async function handle(req, env, ctx) {
   const url = new URL(req.url), path = url.pathname;
   if (req.method === 'OPTIONS') return cors(env, new Response(null, { status: 204 }));
-  if (path === '/' || path === '/health') return json(env, { ok: true, app: 'pusula-kopru' });
+  if (path === '/' || path === '/health') return json(env, { ok: true, app: 'pusula-kopru', kv: !!env.KV, secret: !!env.GOOGLE_CLIENT_SECRET });
 
   if (path === '/auth/start') {
     const state = b64u(rnd(18)); await env.KV.put('st:' + state, '1', { expirationTtl: 900 });
@@ -192,7 +192,10 @@ async function tick(env, when) {
   }
 }
 
+// Gizli olmayan ayarlar kodda; Cloudflare'de yalnız GOOGLE_CLIENT_SECRET (ve KV bağlaması) gerekir
+const DEFAULTS = { GOOGLE_CLIENT_ID: '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com', APP_URL: 'https://gurkangulcubuk.github.io/pusula/' };
+const withDef = env => Object.assign({}, DEFAULTS, Object.fromEntries(Object.entries(env || {}).filter(([, v]) => v !== '' && v != null)));
 export default {
-  async fetch(req, env, ctx) { try { return await handle(req, env, ctx); } catch (e) { return json(env, { error: 'server', msg: String(e && e.message || e) }, 500); } },
-  async scheduled(ev, env, ctx) { ctx.waitUntil(tick(env, ev.scheduledTime)); }
+  async fetch(req, env, ctx) { env = withDef(env); try { return await handle(req, env, ctx); } catch (e) { return json(env, { error: 'server', msg: String(e && e.message || e) }, 500); } },
+  async scheduled(ev, env, ctx) { env = withDef(env); ctx.waitUntil(tick(env, ev.scheduledTime)); }
 };
