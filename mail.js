@@ -100,12 +100,13 @@ const Mail = {
   },
   async batch(ids, add, rem) { for (let i = 0; i < ids.length; i += 1000) await this.post('/messages/batchModify', { ids: ids.slice(i, i + 1000), addLabelIds: add || [], removeLabelIds: rem || [] }); },
   modify(id, add, rem) { return this.post('/messages/' + id + '/modify', { addLabelIds: add || [], removeLabelIds: rem || [] }); },
-  listKey() { return this.q + '|' + this.cat; },
+  span: 1, // gelen kutusu penceresi (gün): 1 → 7 → 30 → 0 (hepsi); "Daha fazla" genişletir
+  listKey() { return this.q + '|' + this.cat + '|' + this.span; },
   async fetchList(more) {
     if (!this.ready() || this.loading) return;
     this.loading = true; this.err = ''; if (!more) mailRender();
     try {
-      let q = 'in:inbox';
+      let q = 'in:inbox' + (this.span ? ' newer_than:' + this.span + 'd' : '');
       if (gopt('search') && this.q) q = this.q;
       if (gopt('cats') && this.cat !== 'all') q += ' category:' + this.cat;
       const r = await this.api('/messages?maxResults=25&q=' + encodeURIComponent(q) + (more && this.next ? '&pageToken=' + this.next : ''));
@@ -168,8 +169,13 @@ function viewInbox() {
   if (gopt('promo') && Mail.cat === 'promotions') h += '<div class="mail-bulk"><button class="btn sm-btn" data-act="gm-promo" data-k="read">' + icon('check', 'sm') + ' <span>Hepsini okundu yap</span></button><button class="btn sm-btn" data-act="gm-promo" data-k="archive">' + icon('archive', 'sm') + ' <span>Hepsini arşivle</span></button></div>';
   h += '<div class="mail-tools"><span class="muted sm">' + (Mail.unread ? Mail.unread + ' <span>okunmamış</span>' : '') + '</span><span class="mt-right">' + (Mail.msgs.length ? '<button class="link" data-act="gm-select">' + tr(Mail.selMode ? 'Seçimi bitir' : 'Seç') + '</button>' : '') + '<button class="icon-btn ' + (Mail.loading ? 'spin' : '') + '" data-act="gm-refresh" aria-label="Yenile">' + icon('sync') + '</button></span></div>';
   if (Mail.err) h += '<div class="sheet-msg err">' + esc(Mail.err) + '</div>';
-  if (!Mail.msgs.length) h += '<div class="empty">' + (Mail.loading ? 'Yükleniyor…' : Mail.q ? 'Sonuç yok.' : 'Gelen kutusu boş. Tebrikler!') + '</div>';
-  else h += '<div class="card mail-list ' + (Mail.selMode ? 'selecting' : '') + '">' + Mail.msgs.map(mailRow).join('') + '</div>' + (Mail.next ? '<button class="btn block" data-act="gm-more">' + (Mail.loading ? 'Yükleniyor…' : 'Daha fazla') + '</button>' : '');
+  const spanTxt = { 1: Lx('son 24 saat', 'last 24 hours'), 7: Lx('son 7 gün', 'last 7 days'), 30: Lx('son 30 gün', 'last 30 days'), 0: Lx('tümü', 'all') }[Mail.span];
+  const searching = gopt('search') && Mail.q;
+  const canMore = Mail.next || (!searching && Mail.span !== 0);
+  const moreBtn = canMore ? '<button class="btn block" data-act="gm-more">' + (Mail.loading ? tr('Yükleniyor…') : Mail.next ? tr('Daha fazla') : Lx('Daha eski mailler', 'Older emails') + ' (' + ({ 1: Lx('son 7 gün', 'last 7 days'), 7: Lx('son 30 gün', 'last 30 days'), 30: Lx('tümü', 'all') }[Mail.span]) + ')') + '</button>' : '';
+  if (!searching) h += '<div class="mail-span muted sm">' + icon('clock', 'xs') + ' <span class="u">' + esc(spanTxt) + '</span></div>';
+  if (!Mail.msgs.length) h += '<div class="empty">' + (Mail.loading ? 'Yükleniyor…' : searching ? 'Sonuç yok.' : Mail.span ? Lx('Bu aralıkta mail yok.', 'No emails in this range.') : 'Gelen kutusu boş. Tebrikler!') + '</div>' + (Mail.loading ? '' : moreBtn);
+  else h += '<div class="card mail-list ' + (Mail.selMode ? 'selecting' : '') + '">' + Mail.msgs.map(mailRow).join('') + '</div>' + moreBtn;
   if (Mail.selMode) h += selBar();
   return h;
 }
@@ -410,8 +416,8 @@ Object.assign(ACTIONS, {
   },
   'mail-sub': el => { Mail.selMode = false; Mail.sel.clear(); S.mailSub = el.dataset.k; window.scrollTo(0, 0); render(); },
   'gm-refresh': () => { Mail.fetchedAt = 0; Mail.err = ''; Mail.fetchList(); Mail.refreshCounts(); },
-  'gm-more': () => Mail.fetchList(true),
-  'gm-cat': el => { Mail.selMode = false; Mail.sel.clear(); Mail.cat = el.dataset.k; Mail.msgs = []; Mail.next = null; Mail.err = ''; render(); },
+  'gm-more': () => { if (Mail.next) return Mail.fetchList(true); const nx = { 1: 7, 7: 30, 30: 0 }[Mail.span]; if (nx === undefined) return; Mail.span = nx; Mail.err = ''; Mail.fetchList(); },
+  'gm-cat': el => { Mail.selMode = false; Mail.sel.clear(); Mail.span = 1; Mail.cat = el.dataset.k; Mail.msgs = []; Mail.next = null; Mail.err = ''; render(); },
   'gm-search-clear': () => { Mail.q = ''; Mail.msgs = []; Mail.err = ''; render(); },
   'gm-open': el => { if (Date.now() - gmLongAt < 700) return; openMail(el.dataset.id); },
   'gm-select': () => { Mail.selMode = !Mail.selMode; Mail.sel.clear(); render(); },
