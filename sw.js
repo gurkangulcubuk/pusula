@@ -1,6 +1,6 @@
 /* PUSULA — offline çalışma için önbellek */
-const CACHE = 'pusula-v1.21.1';
-const ASSETS = ['./', './index.html', './styles.css', './app.js', './vendor/freehand.js', './ink.js', './tools.js', './mail.js', './feedback.js', './planner.js', './notes.js', './ux.js', './money.js', './money2.js', './focus.js', './games2.js', './extras.js', './ux2.js', './words-tr.txt', './words-en.txt', './words-tr-all.txt', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/sc-task.png', './icons/sc-tx.png', './icons/sc-ctr.png', './icons/sc-focus.png',
+const CACHE = 'pusula-v1.22.0';
+const ASSETS = ['./', './index.html', './styles.css', './app.js', './vendor/freehand.js', './ink.js', './tools.js', './mail.js', './feedback.js', './planner.js', './notes.js', './ux.js', './money.js', './money2.js', './focus.js', './games2.js', './extras.js', './ux2.js', './bridge.js', './words-tr.txt', './words-en.txt', './words-tr-all.txt', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/sc-task.png', './icons/sc-tx.png', './icons/sc-ctr.png', './icons/sc-focus.png',
   './fonts/carlito-400.woff2', './fonts/carlito-400-ext.woff2', './fonts/carlito-700.woff2', './fonts/carlito-700-ext.woff2', './fonts/source-sans-3.woff2', './fonts/source-sans-3-ext.woff2',
   './fonts/plex-400.woff2', './fonts/plex-400-ext.woff2', './fonts/plex-500.woff2', './fonts/plex-500-ext.woff2', './fonts/plex-600.woff2', './fonts/plex-600-ext.woff2', './fonts/plex-700.woff2', './fonts/plex-700-ext.woff2'];
 
@@ -24,6 +24,15 @@ self.addEventListener('fetch', e => {
     if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
     return res;
   })));
+});
+/* PUSULA köprüsünden gelen bildirim: uygulama ekrandaysa ona ilet (kendisi gösterir), değilse bildirim göster */
+self.addEventListener('push', e => {
+  let m = {}; try { m = e.data ? e.data.json() : {}; } catch (x) { m = { title: 'PUSULA', body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const vis = list.filter(c => c.visibilityState === 'visible');
+    if (vis.length && m.kind !== undefined) { vis.forEach(c => c.postMessage({ pusula: 'push', msg: m })); return; }
+    return self.registration.showNotification(m.title || 'PUSULA', { body: m.body || '', tag: m.tag || 'pusula', renotify: true, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [300, 150, 300], requireInteraction: m.kind === 'rem', data: m.data || {}, actions: m.actions || [] });
+  }));
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
