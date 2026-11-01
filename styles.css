@@ -1033,3 +1033,24 @@ body{font-size:calc(16px*var(--fs))}
 .nn-c.win{background:var(--accent)}
 .nn-c.bad{background:var(--danger)!important}
 .nn-mode{margin:12px auto 0;max-width:280px}
+/* ===== 1.17: Planlı ve sayaçlar ===== */
+.m-days{margin:0 0 6px}
+.flow-sw{margin-bottom:10px}
+.flow-row{align-items:center}
+.flow-row.short{opacity:.55}
+.flow-row.short .flow-after b{opacity:1}
+.flow-after{font-size:calc(12.5px*var(--fs));color:var(--muted);margin-top:2px}
+.flow-after b{color:var(--text);font-variant-numeric:tabular-nums}
+.ctr-card{padding:8px 12px}
+.ctr-strip{display:grid;gap:8px}
+.ctr{display:flex;align-items:center;gap:8px}
+.ctr-name{flex:1;min-width:0;text-align:left;background:none;color:inherit;font:inherit;padding:4px 0;display:flex;flex-direction:column}
+.ctr-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctr-name span{font-size:calc(12.5px*var(--fs));color:var(--muted);font-variant-numeric:tabular-nums}
+.ctr-btn{min-width:46px;height:42px;border-radius:12px;background:var(--surface2);border:1px solid var(--line);font-size:calc(18px*var(--fs));font-weight:700;color:var(--text)}
+.ctr-btn.plus{min-width:58px;background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.ctr-btn:disabled{opacity:.35}
+.ctr-month{display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 0 4px;border-top:1px solid var(--line);margin-top:8px;font-size:calc(13px*var(--fs))}
+.ctr-month .muted{width:100%;text-transform:capitalize}
+.ctr-add-first{display:block;margin:10px 2px 0}
+.ctr-units{margin:-4px 0 8px}

@@ -7,7 +7,7 @@ function flowCard() {
   const items = all.filter(x => x.time || x.k === 'gev' || x.k === 'ev' || x.k === 'rt');
   const nowHM = pad(new Date().getHours()) + ':' + pad(new Date().getMinutes());
   let body = '';
-  if (!items.length) body = '<div class="empty">' + tr('Bugün için saatli bir şey yok.') + '</div>';
+  if (!items.length) { if (S.tab === 'today') return ''; body = '<div class="empty">' + tr('Bugün için saatli bir şey yok.') + '</div>'; } // Bugün'de boş kart gösterilmez
   else {
     let nowPlaced = false;
     items.forEach(x => {

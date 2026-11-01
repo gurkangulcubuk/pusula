@@ -81,7 +81,7 @@ function acctBal(a) {
   });
   return Math.round(b * 100) / 100;
 }
-const defAcct = () => { const st = settings(); const a = st.moneyDefAcct && S.items.get(st.moneyDefAcct); return a && !a.deleted ? a.id : (accts()[0] || {}).id || ''; };
+const defAcct = () => { const st = settings(); const a = st.moneyDefAcct && S.items.get(st.moneyDefAcct); return a && !a.deleted ? a.id : (accts().find(x => x.kind !== 'card') || accts()[0] || {}).id || ''; }; // varsayılan yoksa kredi kartı olmayan ilk hesap
 
 const moneyOn = () => { const x = (settings().tabs || []).find(y => y.k === 'money'); return !x || x.on !== false; };
 /* ----- işe bağlı tutar (görev ve tekrarlı iş) ----- */
@@ -226,11 +226,11 @@ function viewMoves() {
 /* ----- Düzenli ----- */
 function regRow(r) {
   const c = mcat(r.cat), due = r.next && r.next <= today();
-  return '<div class="row reg-row" data-act="reg-edit" data-id="' + r.id + '"><span class="tx-dot" style="background:' + c.color + '">' + icon(r.dir === 'in' ? 'income' : 'expense', 'xs') + '</span><div class="row-main"><div class="row-title">' + esc(r.title) + '</div><div class="row-meta"><span>' + esc(r.rec ? recText(r.rec) : tr('Tek seferlik')) + '</span>' + (r.mode === 'auto' ? '<span>· ' + tr('otomatik') + '</span>' : '') + (r.paused ? '<span>· ' + tr('durduruldu') + '</span>' : r.next ? '<span class="' + (r.next < today() ? 'danger' : '') + '">· ' + relDay(r.next) + '</span>' : '<span>· ' + tr('bitti') + '</span>') + '</div></div>' +
+  return '<div class="row reg-row" data-act="reg-edit" data-id="' + r.id + '"><span class="tx-dot" style="background:' + c.color + '">' + icon(r.dir === 'in' ? 'income' : 'expense', 'xs') + '</span><div class="row-main"><div class="row-title">' + esc(r.title) + '</div><div class="row-meta"><span>' + esc(r.rec ? recText(r.rec) : tr('Planlı')) + '</span>' + (r.mode === 'auto' ? '<span>· ' + tr('otomatik') + '</span>' : '') + (r.paused ? '<span>· ' + tr('durduruldu') + '</span>' : r.next ? '<span class="' + (r.next < today() ? 'danger' : '') + '">· ' + relDay(r.next) + '</span>' : '<span>· ' + tr('bitti') + '</span>') + '</div></div>' +
     '<div class="reg-right"><b class="' + (r.dir === 'in' ? 'pos' : 'neg') + '">' + fmtTL(r.dir === 'in' ? r.amount : -r.amount, true) + '</b>' + (due && !r.paused && r.mode !== 'auto' ? '<span class="reg-btns"><button class="btn sm-btn primary" data-act="reg-pay" data-id="' + r.id + '">' + (r.dir === 'in' ? tr('Geldi') : tr('Ödendi')) + '</button><button class="link" data-act="reg-skip" data-id="' + r.id + '">' + tr('Atla') + '</button></span>' : '') + '</div></div>';
 }
 function viewRegular() {
-  const rs = regs();
+  const rs = regs().filter(r => r.rec); // tek seferlikler Planlı sekmesinde
   const mon = rs.filter(r => !r.paused && r.next && r.rec).reduce((a, r) => { const per = { day: 30, week: 4.33, month: 1, year: 1 / 12 }[r.rec.unit] / Math.max(1, r.rec.every || 1) * (r.rec.unit === 'week' && r.rec.wdays && r.rec.wdays.length ? r.rec.wdays.length : 1); a[r.dir] += r.amount * per; return a; }, { in: 0, out: 0 });
   let h = '<div class="section-title first"><span class="u">' + esc(T('mRegular')) + '</span><button class="link" data-act="reg-new">+ ' + tr('Düzenli kalem') + '</button></div>' +
     '<p class="muted sm page-hint">' + tr('Kira, fatura, abonelik, maaş… Bir kez tanımla; günü gelince “Ödendi mi?” diye sorar ya da otomatik kaydeder.') + '</p>';
@@ -289,11 +289,11 @@ async function saveTx() {
   if (dir === 'xfer' && (!base.acct || !base.toAcct || base.acct === base.toAcct)) return toast(tr('Transfer için iki farklı hesap seç'));
   closeSheet(); S.mMonth = monthOf(base.date); await save(base);
 }
-function editReg(r) {
+function editReg(r, preset) {
   const isNew = !r;
-  const d = r ? clone(r) : { id: uid(), type: 'regpay', title: '', dir: 'out', amount: 0, cat: '', acct: defAcct(), rec: { mode: 'cal', every: 1, unit: 'month', wdays: [], mday: null, until: '' }, next: today(), mode: 'ask', remind: [], time: '', toCal: Cal.on() };
+  const d = r ? clone(r) : Object.assign({ id: uid(), type: 'regpay', title: '', dir: 'out', amount: 0, cat: '', acct: defAcct(), rec: { mode: 'cal', every: 1, unit: 'month', wdays: [], mday: null, until: '' }, next: today(), mode: 'ask', remind: [], time: '', toCal: Cal.on() }, preset || {});
   S.draft = d;
-  openSheet(sheetHead(isNew ? 'Yeni düzenli kalem' : 'Düzenli kalemi düzenle') + '<div class="sheet-body">' +
+  openSheet(sheetHead(isNew ? (preset && preset.rec === null ? 'Yeni planlı ödeme' : 'Yeni düzenli kalem') : r.rec ? 'Düzenli kalemi düzenle' : 'Planlı ödemeyi düzenle') + '<div class="sheet-body">' +
     '<input class="input big" name="title" placeholder="Örn. Kira, Elektrik, Netflix, Maaş" value="' + esc(d.title) + '" autocomplete="off">' +
     seg('rDir', [['out', 'Gider'], ['in', 'Gelir']], d.dir) +
     '<div class="field-row"><label class="field"><span>Tutar (₺)</span><input class="input" name="amt" inputmode="decimal" placeholder="0" value="' + (d.amount ? String(d.amount).replace('.', ',') : '') + '"></label><label class="field"><span>Kategori</span><select class="input" name="rCat"' + (d.cat ? ' data-manual="1"' : '') + '>' + catOptions(d.dir, d.cat || defCat(d.dir)) + '</select></label></div>' +
