@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.15.1';
+const VERSION = '1.16.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -606,7 +606,7 @@ const Cal = {
   },
   // PUSULA rutinlerinin Google'daki kopyaları gösterilmez (rutin zaten PUSULA'da görünüyor)
   mirrorIds() { const s = new Set(); list('routine').concat(list('task')).forEach(r => { if (r.gev && r.gev.id) s.add(r.gev.id); }); return s; },
-  isMirror(e, ids) { return ids.has(e.gid) || (e.rid && ids.has(e.rid)) || /^PUSULA (rutini|görevi)/.test(e.notes || ''); },
+  isMirror(e, ids) { return ids.has(e.gid) || (e.rid && ids.has(e.rid)) || /^PUSULA (rutini|görevi|ödemesi|odak)/.test(e.notes || ''); },
   forDate(d) { const ids = this.mirrorIds(); return (this.byDate[d] || []).filter(e => !this.isMirror(e, ids)).sort((a, b) => (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0) || (a.start || '').localeCompare(b.start || '')); },
   findEvent(gid) { for (const d in this.byDate) { const e = this.byDate[d].find(x => x.gid === gid); if (e) return e; } return null; },
   body(ev) {
