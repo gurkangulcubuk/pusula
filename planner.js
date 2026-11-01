@@ -26,7 +26,7 @@ function dayItems(d) {
 }
 const KIND_ICON = { gev: 'event', ev: 'event', rt: 'repeat', task: 'task' };
 function itemRow(x) {
-  return '<div class="pi ' + x.k + (x.done ? ' done' : '') + '" data-act="' + x.act + '" ' + x.attr + '><span class="pi-time">' + (x.time ? x.time + (x.end ? '<small>' + x.end + '</small>' : '') : tr('Tüm gün')) + '</span>' +
+  return '<div class="pi ' + x.k + (x.done ? ' done' : '') + (x.past ? ' past' : '') + '" data-act="' + x.act + '" ' + x.attr + '><span class="pi-time">' + (x.time ? x.time + (x.end ? '<small>' + x.end + '</small>' : '') : tr('Tüm gün')) + '</span>' +
     '<span class="pi-bar" style="background:' + (x.color || (x.k === 'task' ? 'var(--muted)' : x.k === 'rt' ? 'var(--ok)' : 'var(--accent)')) + '"></span><span class="pi-title u">' + esc(x.title) + '</span>' +
     '<span class="pi-ico">' + (x.rep ? icon('repeat', 'xs') : '') + (x.remind ? icon('bell', 'xs') : '') + icon(KIND_ICON[x.k], 'xs') + '</span></div>';
 }

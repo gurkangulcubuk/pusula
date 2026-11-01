@@ -834,3 +834,31 @@ body{font-size:calc(16px*var(--fs))}
 .row .check{margin-right:2px}
 .mail-span{display:flex;align-items:center;gap:5px;margin:0 2px 6px}
 .mail-span svg.i{width:13px;height:13px}
+/* ===== 1.14: gözden geçirme ===== */
+.page-hint{margin:-2px 2px 10px}
+.alert-banner .ab-n{background:currentColor;color:var(--surface);border-radius:99px;min-width:20px;height:20px;display:inline-grid;place-items:center;font-size:12px;padding:0 6px;margin-right:2px}
+.alert-banner .ab-main{min-width:0}
+.alert-banner .ab-main .u{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.ab-more{flex:0 0 auto;font-size:calc(12px*var(--fs));opacity:.8;white-space:nowrap}
+.smart-add{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r,14px);padding:4px 4px 4px 12px;margin:10px 0 4px}
+.smart-add:focus-within{border-color:var(--accent)}
+.smart-add input{flex:1;min-width:0;border:0;background:transparent;outline:none;font:inherit;font-size:calc(15px*var(--fs));color:var(--text);padding:9px 0}
+.sa-ico{color:var(--accent);display:grid}
+.sa-prev{font-size:calc(12.5px*var(--fs));color:var(--muted);margin:0 4px 10px;min-height:0;display:none;align-items:center;gap:6px;flex-wrap:wrap}
+.sa-prev.on{display:flex}
+.sa-prev svg.i{width:13px;height:13px;color:var(--accent)}
+.qa-dot{opacity:.5}
+.flow .pi{padding-left:0;padding-right:0}
+.flow .pi.past{opacity:.5}
+.flow-now{display:flex;align-items:center;gap:8px;color:var(--danger);font-size:calc(11.5px*var(--fs));font-weight:700;margin:2px 0}
+.flow-now::after{content:'';flex:1;height:2px;background:var(--danger);border-radius:2px;opacity:.7}
+.row[data-act=edit-task]{touch-action:pan-y;position:relative;transition:transform .18s ease}
+.row.swiping{transition:none}
+.row.sw-r{box-shadow:inset 6px 0 0 var(--ok)}
+.row.sw-l{box-shadow:inset -6px 0 0 var(--warn)}
+.gs-box{flex:1;margin:0 6px 0 0}
+.gs-row{align-items:center;gap:10px}
+.gs-row>svg.i{color:var(--accent);flex:0 0 auto}
+.note-sort{flex:0 0 auto;min-height:34px;gap:5px;padding:0 10px}
+.alert-banner .ab-n{background:var(--warn);color:#fff}
+.alert-banner.danger .ab-n{background:var(--danger)}

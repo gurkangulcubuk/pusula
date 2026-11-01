@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.13.1';
+const VERSION = '1.14.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -129,9 +129,9 @@ async function remove(item, opts) { item.deleted = true; return save(item, opts)
 const LOOK_DEFAULTS = { theme: 'dark', themeId: 'notr', tone: 'net', accent: 'theme', cards: 'filled', font: 'plex', fs: 1, density: 'normal', tabLabels: true, titleStyle: 'classic' };
 const DEFAULT_SETTINGS = Object.assign({
   id: 'settings', type: 'settings', name: '', paper: 'lines', look: 4, lang: 'tr', titles: {}, custom: [], alerts: {},
-  today: [{ k: 'tasks', on: true }, { k: 'events', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }, { k: 'goals', on: true }, { k: 'pinned', on: true }, { k: 'mail', on: true }],
+  today: [{ k: 'flow', on: true }, { k: 'tasks', on: true }, { k: 'events', on: false }, { k: 'routines', on: true }, { k: 'habits', on: true }, { k: 'goals', on: true }, { k: 'pinned', on: true }, { k: 'mail', on: true }],
   plan: [{ k: 'tasks', on: true }, { k: 'calendar', on: true }, { k: 'routines', on: true }, { k: 'habits', on: true }],
-  notes: true, tools: true, mailTab: true, gmail: {}, updated: 0
+  notes: true, tools: true, mailTab: true, gmail: {}, tabs: [{ k: 'today', on: true }, { k: 'plan', on: true }, { k: 'info', on: true }, { k: 'mail', on: true }, { k: 'tools', on: true }], updated: 0
 }, LOOK_DEFAULTS);
 // Temalar (1.7): nötr zemin + canlı vurgu. Zemin, "Ton yoğunluğu" ayarına göre temanın rengine boyanır.
 // a = [vurgu, vurgu üstü yazı]
@@ -201,7 +201,7 @@ const TITLES = {
   goals: { tr: ['Hedefler', 'Zirve listesi'], en: ['Goals', 'Summit list'] },
   notes: { tr: ['Notlar', 'Aklımda kalsın'], en: ['Notes', 'Mental sticky notes'] },
   pinned: { tr: ['Sabitlenen notlar', 'Buzdolabı kapağı'], en: ['Pinned notes', 'Fridge door'] },
-  routines: { tr: ['Rutinler', 'Vakti geldi'], en: ['Routines', 'It’s about time'] },
+  routines: { tr: ['Tekrarlı işler', 'Vakti geldi'], en: ['Recurring', 'It’s about time'] },
   tools: { tr: ['Araçlar', 'Alet çantası'], en: ['Tools', 'Toolbox'] },
   mail: { tr: ['Posta', 'Postacı'], en: ['Mail', 'The mailman'] }
 };
@@ -248,6 +248,8 @@ function settings() {
     if (s.titleStyle === 'ironic') { s.ironicKeep = {}; for (const k in OLD_IRONIC) s.ironicKeep[k] = OLD_IRONIC[k][s.lang === 'en' ? 1 : 0]; }
     delete s.darkPal; delete s.lightPal; s.look = 4;
   }
+  if (s.today && !s.today.find(x => x.k === 'flow')) { s.today.unshift({ k: 'flow', on: true }); const ev = s.today.find(x => x.k === 'events'); if (ev) ev.on = false; }
+  if (!s.tabs) s.tabs = [{ k: 'today', on: true }, { k: 'plan', on: true }, { k: 'info', on: true }, { k: 'mail', on: s.mailTab !== false }, { k: 'tools', on: s.tools !== false }];
   for (const k in DEFAULT_SETTINGS) if (s[k] === undefined) s[k] = clone(DEFAULT_SETTINGS[k]);
   if (!THEMES[s.themeId]) s.themeId = 'notr';
   if (![0.8, 0.9, 1].includes(Number(s.fs))) s.fs = 1;
@@ -754,6 +756,8 @@ const EN = {
   'Hafta içi her gün': 'Every weekday', 'Görevleri takvime yaz': 'Write tasks to calendar', 'Yeni görevlerde varsayılan; görev eklerken ayrıca seçebilirsin': 'Default for new tasks; you can also choose per task',
   'Tarihi olan görev takviminde görünür; hatırlatma uygulama kapalıyken de telefonuna gelir': 'A task with a date shows in your calendar; reminders reach your phone even when the app is closed',
   'Google oturumunu kendiliğinden yenile': 'Renew Google session automatically', 'Oturum bitince uygulamaya ilk dokunuşta yenilenir; kısa bir Google penceresi açılıp kapanabilir': 'When the session expires it renews on your next tap; a Google window may briefly open and close',
+  'Tekrarlı işler': 'Recurring', 'Yeni tekrarlı iş': 'New recurring task', 'Tekrarlı işi düzenle': 'Edit recurring task', 'Günün akışı (saat sırasıyla)': 'Day flow (by time)', 'Alt menü': 'Bottom menu', 'Sekmelerin sırası ve görünürlüğü. Okla taşı, anahtarla gizle.': 'Order and visibility of tabs. Move with arrows, hide with the switch.', 'araçlar ve oyunlar': 'tools & games',
+  'Düzenli yaptığın işler: “Yaptım” deyince sonraki tarihe geçer; istersen yaptıktan sonra saymaya başlar, maliyet ve geçmiş tutar. Tek seferlik ya da yapılacak işler için Görevler’i kullan.': 'Things you do regularly: tap “Done” and it moves to the next date; it can count from when you did it, and keeps cost and history. Use Tasks for one-off to-dos.',
   'Tekrar': 'Repeat', 'Tekrar yok': 'No repeat', 'Her gün': 'Every day', 'Hafta içi her gün': 'Every weekday', 'Her hafta': 'Every week', 'Her ay': 'Every month', 'Her yıl': 'Every year',
   'Etiketler': 'Tags', '+ yeni etiket': '+ new tag', 'Sil': 'Delete', 'Kaydet': 'Save', 'Kapat': 'Close', 'Tamamla': 'Complete', 'Ekle': 'Add', '+ Ekle': '+ Add',
   'Görev silindi': 'Task deleted', 'Görev tamamlandı': 'Task completed', 'Geri al': 'Undo', 'Etkinlik silindi': 'Event deleted', 'Hedef silindi': 'Goal deleted', 'Not silindi': 'Note deleted', 'Silindi': 'Deleted',
@@ -938,13 +942,17 @@ function infoSubs() {
   const a = settings().notes ? [{ k: 'notes', label: TL('notes') }] : [];
   return a.concat(customMods().filter(m => m.home === 'info').map(m => ({ k: 'c:' + m.id, label: m.name })));
 }
-function visibleTabs() { return TABS.filter(t => (t.k !== 'plan' || planSubs().length) && (t.k !== 'info' || infoSubs().length) && (t.k !== 'tools' || settings().tools !== false) && (t.k !== 'mail' || settings().mailTab !== false)); }
+function visibleTabs() {
+  const st = settings(); const ord = (st.tabs || []).map(x => x.k); const on = k => { const x = (st.tabs || []).find(y => y.k === k); return !x || x.on !== false; };
+  const v = TABS.filter(t => on(t.k) && (t.k !== 'plan' || planSubs().length) && (t.k !== 'info' || infoSubs().length)).sort((a, b) => ord.indexOf(a.k) - ord.indexOf(b.k));
+  return v.length ? v : TABS.filter(t => t.k === 'today');
+}
 const TAB_KEYS = ['today', 'plan', 'info', 'tools', 'settings'];
 const subTitle = k => k && k.startsWith('c:') ? ((cmod(k.slice(2)) || {}).name || '') : T(k);
 function render() {
   applyTheme();
   const tabs = visibleTabs();
-  if (S.tab !== 'settings' && !tabs.find(t => t.k === S.tab)) S.tab = 'today';
+  if (S.tab !== 'settings' && !tabs.find(t => t.k === S.tab)) S.tab = tabs[0].k;
   $('#tabbar').innerHTML = tabs.map(t => '<button class="tab ' + (S.tab === t.k ? 'on' : '') + '" data-act="tab" data-k="' + t.k + '">' + icon(t.icon) + '<span class="u">' + esc(TL(t.k)) + '</span></button>').join('');
   let title = '', actions = '', body = '';
   if (S.tab === 'today') { title = T('today'); body = viewToday(); }
@@ -954,6 +962,7 @@ function render() {
   else if (S.tab === 'tools') { title = T('tools'); body = typeof viewTools === 'function' ? viewTools() : ''; }
   else { title = T('settings'); body = viewSettings(); }
   if ((Drive.on() || Cal.on()) && S.tab !== 'settings') actions += '<button id="syncBtn" class="icon-btn ' + (Drive.status === 'syncing' ? 'spin ' : '') + (Drive.status === 'needauth' || Drive.status === 'error' ? 'warn' : '') + '" data-act="sync-now" aria-label="Eşitle">' + icon('sync') + '</button>';
+  if (S.tab !== 'settings' && typeof searchTopButton === 'function') actions += searchTopButton();
   if (S.tab !== 'settings' && typeof dnTopButton === 'function') actions += dnTopButton();
   if (S.tab !== 'settings') { const n = computeAlerts().length; actions += '<button class="icon-btn bell ' + (n ? 'has' : '') + '" data-act="alerts" aria-label="Uyarılar">' + icon('bell') + (n ? '<b class="badge">' + (n > 9 ? '9+' : n) + '</b>' : '') + '</button>'; }
   actions += S.tab === 'settings'
@@ -1000,7 +1009,7 @@ function computeAlerts() {
 function alertBanner() {
   const st = settings(); if ((st.alerts || {}).banner === false || lsGet('pusula.bannerDay', '') === today()) return '';
   const al = computeAlerts().filter(a => a.lvl !== 'info'); if (!al.length) return '';
-  return '<div class="alert-banner ' + (al.some(a => a.lvl === 'danger') ? 'danger' : 'warn') + '"><button class="ab-main" data-act="alerts">' + icon('bell') + '<span class="u">' + esc(al.slice(0, 2).map(a => a.text).join(' · ')) + (al.length > 2 ? ' +' + (al.length - 2) : '') + '</span></button><button class="icon-btn" data-act="banner-hide" aria-label="Bugün gizle">' + icon('x', 'sm') + '</button></div>';
+  return '<div class="alert-banner ' + (al.some(a => a.lvl === 'danger') ? 'danger' : 'warn') + '"><button class="ab-main" data-act="alerts">' + icon('bell') + (al.length > 1 ? '<b class="ab-n">' + al.length + '</b>' : '') + '<span class="u">' + esc(al[0].text) + '</span>' + (al.length > 1 ? '<span class="ab-more">' + Lx('+' + (al.length - 1) + ' uyarı', '+' + (al.length - 1) + ' more') + '</span>' : '') + '</button><button class="icon-btn" data-act="banner-hide" aria-label="Bugün gizle">' + icon('x', 'sm') + '</button></div>';
 }
 function openAlerts() {
   const al = computeAlerts();
@@ -1119,9 +1128,9 @@ function viewToday() {
   if (planOn('calendar')) { const n = eventsOn(t0).length; pills.push('<button class="pill" data-act="go" data-k="calendar"><b>' + n + '</b> etkinlik</button>'); }
   if (planOn('habits')) { const hs = list('habit').filter(x => habitScheduled(x, t0)); const d = hs.filter(x => (x.log || {})[t0]).length; if (hs.length) pills.push('<button class="pill" data-act="go" data-k="habits"><b>' + d + '/' + hs.length + '</b> alışkanlık</button>'); }
   let html = alertBanner() + '<div class="hero"><div class="hero-greet">' + greet + (st.name ? ', ' + esc(st.name) : '') + '</div><div class="hero-date">' + fmtLong(t0) + '</div><div class="hero-sum">' + pills.join('') + '</div></div><div class="grid-cards">';
-  const avail = { tasks: planOn('tasks'), events: planOn('calendar'), routines: planOn('routines'), habits: planOn('habits'), goals: planOn('habits'), pinned: st.notes, mail: typeof Mail !== 'undefined' && Mail.on() && gopt('todayCard') };
+  const avail = { flow: typeof flowCard === 'function', tasks: planOn('tasks'), events: planOn('calendar'), routines: planOn('routines'), habits: planOn('habits'), goals: planOn('habits'), pinned: st.notes, mail: typeof Mail !== 'undefined' && Mail.on() && gopt('todayCard') };
   customMods().forEach(m => { avail['c:' + m.id] = true; });
-  st.today.forEach(c => { if (!c.on || !avail[c.k]) return; if (String(c.k).startsWith('c:')) html += cardCustom(c.k.slice(2)); else if (TODAY_CARDS[c.k]) html += TODAY_CARDS[c.k](); });
+  st.today.forEach(c => { if (!c.on || !avail[c.k]) return; if (String(c.k).startsWith('c:')) html += cardCustom(c.k.slice(2)); else if (c.k === 'flow') html += flowCard(); else if (TODAY_CARDS[c.k]) html += TODAY_CARDS[c.k](); });
   html += '</div>';
   if (!st.today.some(c => c.on && avail[c.k])) html += '<div class="empty">Bugün ekranı boş. Ayarlar’dan kart ekleyebilirsin.</div>';
   return html;
@@ -1135,7 +1144,8 @@ function card(ic, title, body, go) {
 const TODAY_CARDS = {
   tasks() {
     const t0 = today(); const all = list('task');
-    const tasks = all.filter(t => !t.done && t.due && t.due <= t0).sort(taskSort);
+    const flowOn = settings().today.some(c => c.k === 'flow' && c.on);
+    const tasks = all.filter(t => !t.done && t.due && t.due <= t0 && !(flowOn && t.due === t0 && t.time)).sort(taskSort);
     const undated = all.filter(t => !t.done && !t.due).length;
     const body = tasks.length
       ? '<div class="list">' + tasks.slice(0, 8).map(taskRow).join('') + '</div>' + (tasks.length > 8 ? '<div class="more">+' + (tasks.length - 8) + ' görev daha</div>' : '')
@@ -1149,7 +1159,8 @@ const TODAY_CARDS = {
   },
   routines() {
     const lim = addDays(today(), 7);
-    const rs = list('routine').filter(r => r.next && r.next <= lim).sort((a, b) => a.next.localeCompare(b.next));
+    const flowOn = settings().today.some(c => c.k === 'flow' && c.on);
+    const rs = list('routine').filter(r => r.next && r.next <= lim && !(flowOn && r.next === today() && r.time)).sort((a, b) => a.next.localeCompare(b.next));
     if (!rs.length) return '';
     return card('repeat', T('routines'), rs.slice(0, 6).map(routineRow).join(''), 'routines');
   },
@@ -1466,7 +1477,7 @@ function routineRow(r) {
 function viewRoutines() {
   const t0 = today(), wk = addDays(t0, 7);
   const rs = list('routine').sort((a, b) => (a.next || '9999').localeCompare(b.next || '9999'));
-  let h = '<div class="section-title first"><span class="u">' + esc(T('routines')) + '</span><button class="link" data-act="new-routine">+ Rutin</button></div>';
+  let h = '<div class="section-title first"><span class="u">' + esc(T('routines')) + '</span><button class="link" data-act="new-routine">+ Tekrarlı iş</button></div><p class="muted sm page-hint">Düzenli yaptığın işler: “Yaptım” deyince sonraki tarihe geçer; istersen yaptıktan sonra saymaya başlar, maliyet ve geçmiş tutar. Tek seferlik ya da yapılacak işler için Görevler’i kullan.</p>';
   if (!rs.length) return h + '<div class="card"><div class="empty">Tekrarlı işlerini buraya ekle: araç bakımı her 6 ayda, klima filtresi her 3 ayda, sigorta yenileme her yıl, bitki sulama 4 günde bir… “Yaptım” dediğinde sonraki tarih kendiliğinden hesaplanır.</div></div>';
   const over = rs.filter(r => r.next && r.next < t0), soon = rs.filter(r => r.next && r.next >= t0 && r.next <= wk), later = rs.filter(r => !r.next || r.next > wk);
   const sec = (t, arr, cls) => arr.length ? '<div class="section-title ' + (cls || '') + '"><span>' + t + '<span class="count">' + arr.length + '</span></span></div><div class="card">' + arr.map(routineRow).join('') + '</div>' : '';
@@ -1477,7 +1488,7 @@ function editRoutine(r) {
   const d = r ? clone(r) : { id: uid(), type: 'routine', title: '', rec: { mode: 'cal', every: 1, unit: 'month', wdays: [], mday: null }, next: today(), last: '', hist: [], cost: null, notes: '', toCal: Cal.on() && Cal.cfg.routines !== false };
   S.draft = d;
   const hist = (d.hist || []).slice(-10).reverse();
-  openSheet(sheetHead(isNew ? 'Yeni rutin' : 'Rutini düzenle') + '<div class="sheet-body">' +
+  openSheet(sheetHead(isNew ? 'Yeni tekrarlı iş' : 'Tekrarlı işi düzenle') + '<div class="sheet-body">' +
     '<input class="input big" name="title" placeholder="Örn. Araç bakımı" value="' + esc(d.title) + '" autocomplete="off" enterkeyhint="done">' +
     recEditor(d.rec) +
     '<div class="field-row"><label class="field"><span>Sonraki tarih</span><input type="date" class="input" name="next" value="' + (d.next || '') + '"></label><label class="field"><span>Saat (isteğe bağlı)</span><input type="time" class="input" name="rtime" value="' + (d.time || '') + '"></label></div>' +
@@ -1790,8 +1801,8 @@ function inkBind() {
 }
 
 /* ----- Ayarlar ----- */
-const CARD_LABELS = { tasks: 'Bugünün görevleri', events: 'Bugünkü etkinlikler', routines: 'Yaklaşan rutinler', habits: 'Alışkanlıklar', goals: 'Hedefler', pinned: 'Sabitlenen notlar', mail: 'Posta (Gmail bağlıyken)' };
-const MOD_LABELS = { tasks: 'Görevler', calendar: 'Takvim', routines: 'Rutinler', habits: 'Alışkanlıklar & hedefler' };
+const CARD_LABELS = { flow: 'Günün akışı (saat sırasıyla)', tasks: 'Bugünün görevleri', events: 'Bugünkü etkinlikler', routines: 'Yaklaşan rutinler', habits: 'Alışkanlıklar', goals: 'Hedefler', pinned: 'Sabitlenen notlar', mail: 'Posta (Gmail bağlıyken)' };
+const MOD_LABELS = { tasks: 'Görevler', calendar: 'Takvim', routines: 'Tekrarlı işler', habits: 'Alışkanlıklar & hedefler' };
 function orderRows(listKey, arr, labels) {
   return arr.map((m, i) => '<div class="set-row"><div class="grow">' + (String(m.k).startsWith('c:') ? '<span class="u">' + esc((cmod(m.k.slice(2)) || {}).name || '') + '</span>' : labels[m.k]) + '</div><div class="order-btns"><button class="icon-btn" data-act="list-move" data-list="' + listKey + '" data-i="' + i + '" data-dir="-1" aria-label="Yukarı" ' + (i === 0 ? 'disabled' : '') + '>' + icon('up') + '</button><button class="icon-btn" data-act="list-move" data-list="' + listKey + '" data-i="' + i + '" data-dir="1" aria-label="Aşağı" ' + (i === arr.length - 1 ? 'disabled' : '') + '>' + icon('down') + '</button></div><button class="switch ' + (m.on ? 'on' : '') + '" data-act="list-toggle" data-list="' + listKey + '" data-i="' + i + '" aria-label="Aç/kapat"></button></div>').join('');
 }
@@ -1813,8 +1824,7 @@ function viewSettings() {
     (customMods().length ? customMods().map(m => '<div class="set-row cmod-row"><div class="grow"><input class="input slim" data-cmod-name="' + m.id + '" value="' + esc(m.name) + '" autocomplete="off"><div class="sub"><span>' + CTYPES[m.type][0] + '</span> · <span>' + (m.home === 'info' ? 'Bilgi sekmesinde' : 'Planla sekmesinde') + '</span></div></div><button class="icon-btn" data-act="cmod-home" data-id="' + m.id + '" aria-label="Sekmeyi değiştir">' + icon(m.home === 'info' ? 'info' : 'plan') + '</button><button class="icon-btn" data-act="cmod-del" data-id="' + m.id + '" aria-label="Sil">' + icon('trash') + '</button></div>').join('') : '<p class="muted sm" style="margin:4px 0 8px">Henüz yok. Liste, not defteri, sayaç ya da kayıt defteri olarak kendi bölümünü ekle.</p>') +
     '<button class="btn block" data-act="cmod-new">' + icon('plus') + ' Yeni bölüm ekle</button>';
   const modules = '<div class="set-sub">Planla</div>' + orderRows('plan', st.plan, MOD_LABELS) +
-    '<div class="set-sub">Posta</div><div class="set-row"><div class="grow"><div>Posta sekmesi</div><div class="sub">Gmail gelen kutusu, abonelikler, otomatik temizlik</div></div><button class="switch ' + (st.mailTab !== false ? 'on' : '') + '" data-act="mailtab-toggle" aria-label="Aç/kapat"></button></div>' +
-    '<div class="set-sub">Araçlar</div><div class="set-row"><div class="grow"><div>Araçlar ve oyunlar sekmesi</div><div class="sub">Hesap makinesi, zamanlayıcı, odak sayacı, oyunlar…</div></div><button class="switch ' + (st.tools !== false ? 'on' : '') + '" data-act="tools-toggle" aria-label="Aç/kapat"></button></div>' +
+    '<div class="set-sub">Alt menü</div><p class="muted sm" style="margin:0 0 6px">Sekmelerin sırası ve görünürlüğü. Okla taşı, anahtarla gizle.</p>' + orderRows('tabs', st.tabs, { today: esc(TL('today')), plan: esc(TL('plan')), info: esc(TL('info')), mail: esc(TL('mail')) + ' <span class="muted sm">· Gmail</span>', tools: esc(TL('tools')) + ' <span class="muted sm">· ' + tr('araçlar ve oyunlar') + '</span>' }) +
     '<div class="set-sub">Bilgi</div><div class="set-row"><div class="grow">Notlar ve kalem notları</div><button class="switch ' + (st.notes ? 'on' : '') + '" data-act="notes-toggle" aria-label="Aç/kapat"></button></div>' +
     '<div class="set-row click" data-act="tpl-manage">' + icon('template') + '<div class="grow"><div>Not şablonları</div><div class="sub">Alışveriş, valiz, toplantı, günlük… aç-kapat, düzenle, kendi şablonunu ekle</div></div>' + icon('right') + '</div>' +
     '<div class="set-row"><div class="grow"><div>Yeni kalem notu kâğıdı</div></div><div class="seg" style="max-width:240px">' + PAPERS.map(p => '<button class="' + (st.paper === p ? 'on' : '') + '" data-act="set-paper" data-k="' + p + '">' + { blank: 'Boş', lines: 'Çizgili', grid: 'Kareli' }[p] + '</button>').join('') + '</div></div>' +
@@ -2085,7 +2095,7 @@ function openQuick(only) {
   if (planOn('tasks')) opts.push(['task', 'Görev', 'task']);
   if (planOn('calendar')) opts.push(['event', 'Etkinlik', 'event']);
   if (st.notes) { opts.push(['note', 'Not', 'note']); opts.push(['list', 'Liste', 'list']); opts.push(['ink', 'Kalem notu', 'pen']); opts.push(['tpl', 'Şablondan', 'template']); }
-  if (planOn('routines')) opts.push(['routine', 'Rutin', 'repeat']);
+  if (planOn('routines')) opts.push(['routine', 'Tekrarlı iş', 'repeat']);
   if (planOn('habits')) { opts.push(['habit', 'Alışkanlık', 'habit']); opts.push(['goal', 'Hedef', 'goal']); }
   const shown = only ? opts.filter(o => only.includes(o[0])) : opts;
   if (!shown.length) return toast('Ayarlar’dan bir modül aç');

@@ -90,11 +90,13 @@ Object.assign(ICONS, {
 });
 function viewTools() {
   tdMigrate();
+  S.toolsSub = S.toolsSub || lsGet('pusula.toolsSub', 'tools');
   const tile = (x, act) => '<button class="tool-tile" data-act="' + act + '" data-k="' + x[0] + '">' + icon(x[3]) + '<span class="tt-name">' + x[1] + '</span><span class="tt-desc">' + x[2] + '</span></button>';
-  return '<div class="section-title first"><span>Araçlar</span></div><div class="tool-grid">' + TOOLS.map(x => tile(x, 'tool-open')).join('') + '</div>' +
-    '<div class="section-title"><span>Oyunlar</span></div><div class="tool-grid">' + GAMES.map(x => tile(x, 'game-open')).join('') + '</div>';
+  return '<div class="seg plan-seg"><button class="' + (S.toolsSub === 'tools' ? 'on' : '') + '" data-act="tools-sub" data-k="tools">Araçlar</button><button class="' + (S.toolsSub === 'games' ? 'on' : '') + '" data-act="tools-sub" data-k="games">Oyunlar</button></div>' +
+    (S.toolsSub === 'games' ? '<div class="tool-grid">' + GAMES.map(x => tile(x, 'game-open')).join('') + '</div>' : '<div class="tool-grid">' + TOOLS.map(x => tile(x, 'tool-open')).join('') + '</div>');
 }
 Object.assign(ACTIONS, {
+  'tools-sub': el => { S.toolsSub = el.dataset.k; lsSet('pusula.toolsSub', S.toolsSub); render(); },
   'tool-open': el => { unlockAudio(); ({ calc: openCalc, timer: openTimer, pomo: openPomo, loan: openLoan, dates: openDates, units: openUnits, decide: openDecide })[el.dataset.k](); },
   'game-open': el => { unlockAudio(); ({ g2048: open2048, mines: openMines, sudoku: openSudoku, wordtr: () => openWord('tr'), worden: () => openWord('en') })[el.dataset.k](); }
 });

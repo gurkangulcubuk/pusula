@@ -5,6 +5,7 @@ Object.assign(ICONS, {
   list: '<path d="M9 6h11M9 12h11M9 18h11"/><rect x="3.5" y="4.5" width="3" height="3" rx=".8"/><rect x="3.5" y="10.5" width="3" height="3" rx=".8"/><rect x="3.5" y="16.5" width="3" height="3" rx=".8"/>',
   template: '<rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   palette: '<path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.2-1-1.6-1-2.6 0-1 .8-1.7 1.9-1.7H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7.5" r="1.2" fill="currentColor"/>',
+  sort: '<path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"/>',
   dots: '<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>'
 });
 const NOTE_COLORS = ['', '#E5484D', '#F5A524', '#30A46C', '#12A594', '#3E63DD', '#8E4EC6', '#D6409F'];
@@ -46,7 +47,7 @@ function viewNotes() {
     (tags.length ? '<div class="chips tag-row">' + tags.map(t => '<button class="chip sm ' + (S.noteTag === t.id ? 'on' : '') + '" data-act="note-tagf" data-id="' + t.id + '">#' + esc(t.name) + '</button>').join('') + '</div>' : '') +
     '<div class="note-new"><button class="btn" data-act="new-note">' + icon('note', 'sm') + ' <span>Yazı</span></button><button class="btn" data-act="new-list">' + icon('list', 'sm') + ' <span>Liste</span></button><button class="btn" data-act="new-ink">' + icon('pen', 'sm') + ' <span>Kalem</span></button><button class="btn" data-act="new-from-tpl">' + icon('template', 'sm') + ' <span>Şablon</span></button></div>' +
     '<div class="note-bar"><div class="chips">' + kinds.map(k => '<button class="chip sm ' + (S.noteKind === k[0] ? 'on' : '') + '" data-act="note-kindf" data-k="' + k[0] + '">' + k[1] + '</button>').join('') + '</div>' +
-    '<select class="input slim note-sort" id="noteSort" aria-label="Sırala">' + [['updated', 'Son düzenlenen'], ['created', 'Oluşturma'], ['title', 'A–Z'], ['color', 'Renk']].map(o => '<option value="' + o[0] + '" ' + (S.noteSort === o[0] ? 'selected' : '') + '>' + tr(o[1]) + '</option>').join('') + '</select></div>' +
+    '<button class="btn sm-btn note-sort" data-act="note-sort" aria-label="Sırala">' + icon('sort', 'sm') + '<span>' + tr({ updated: 'Son', created: 'Yeni', title: 'A–Z', color: 'Renk' }[S.noteSort] || 'Son') + '</span></button></div>' +
     '<div id="notesList">' + notesList() + '</div>';
 }
 const noteText = n => n.kind === 'list' ? (n.items || []).map(i => i.t).join(' ') : (n.body || '');
@@ -219,6 +220,7 @@ Object.assign(ACTIONS, {
   'nt-to-list': () => { const E = S.noteEd; if (!E) return; const d = E.d; d.items = (d.body || '').split('\n').map(x => x.trim()).filter(Boolean).map(x => ({ id: nid(), done: /^☑/.test(x), t: x.replace(/^(•|☐|☑|-|\*|\d+[.)])\s*/, '') })); d.body = ''; d.kind = 'list'; noteChanged(); const n = d; closeSheet(); setTimeout(() => { const it = S.items.get(n.id) || n; openNote(it); }, 50); },
   'note-copy': async () => { const E = S.noteEd; if (!E) return; const d = E.d; const t = (d.title ? d.title + '\n\n' : '') + (d.kind === 'list' ? d.items.map(i => (i.done ? '☑ ' : '☐ ') + i.t).join('\n') : d.body); try { await navigator.clipboard.writeText(t); toast(tr('Kopyalandı')); } catch (e) { toast(tr('Kopyalanamadı')); } },
   'note-share': async () => { const E = S.noteEd; if (!E) return; const d = E.d; const t = d.kind === 'list' ? d.items.map(i => (i.done ? '☑ ' : '☐ ') + i.t).join('\n') : d.body; try { await navigator.share({ title: d.title || noteTitle(d), text: (d.title ? d.title + '\n\n' : '') + t }); } catch (e) { /* vazgeçildi */ } },
+  'note-sort': () => { const o = ['updated', 'created', 'title', 'color']; S.noteSort = o[(o.indexOf(S.noteSort) + 1) % o.length]; lsSet('pusula.noteSort', S.noteSort); render(); toast(tr({ updated: 'Son düzenlenene göre', created: 'Oluşturma tarihine göre', title: 'Başlığa göre (A–Z)', color: 'Renge göre' }[S.noteSort])); },
   'note-kindf': el => { S.noteKind = el.dataset.k; lsSet('pusula.noteKind', S.noteKind); render(); }
 });
 document.addEventListener('change', e => { if (e.target.id === 'noteSort') { S.noteSort = e.target.value; lsSet('pusula.noteSort', S.noteSort); const l = $('#notesList'); if (l) { l.innerHTML = notesList(); translateTree(l); } } });
@@ -232,7 +234,7 @@ document.addEventListener('change', e => { if (e.target.id === 'noteSort') { S.n
     'Not şablonları': 'Note templates', 'Açık olanlar “Şablon” menüsünde görünür. Bir notu kendi şablonuna çevirmek için notta ⋯ → “Şablon olarak kaydet”.': 'Templates that are on show in the “Template” menu. To turn a note into your own template: ⋯ → “Save as template”.',
     'Önerilen': 'Suggested', 'Senin şablonun': 'Your template', 'Düzenle': 'Edit', 'Yeni şablon': 'New template', 'Silinen önerilenleri geri getir': 'Restore deleted suggestions', 'Şablonu düzenle': 'Edit template', 'Şablon adı': 'Template name',
     'Örn. Haftalık market': 'E.g. Weekly groceries', 'Tür': 'Type', 'Not başlığı ({tarih} bugünün tarihi olur)': 'Note title ({date} becomes today’s date)', 'İçerik (listede her satır bir madde)': 'Content (for lists, one item per line)',
-    'Şablon eklendi': 'Template added', 'Şablon kaydedildi': 'Template saved', 'Kopyalandı': 'Copied', 'Not şablonları ve türleri': 'Note templates & types'
+    'Şablon eklendi': 'Template added', 'Şablon kaydedildi': 'Template saved', 'Kopyalandı': 'Copied', 'Son': 'Recent', 'Yeni': 'Newest', 'Son düzenlenene göre': 'By last edited', 'Oluşturma tarihine göre': 'By created date', 'Başlığa göre (A–Z)': 'By title (A–Z)', 'Renge göre': 'By color', 'Not şablonları ve türleri': 'Note templates & types'
   };
   for (const k in add) if (!(k in EN)) EN[k] = add[k];
 })();
