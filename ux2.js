@@ -136,9 +136,9 @@ document.addEventListener('pointercancel', () => { if (SW2) { SW2.row.style.tran
 document.addEventListener('click', e => { if (Date.now() - sw2At < 400 && e.target.closest && e.target.closest(SW2_SEL)) { e.stopPropagation(); e.preventDefault(); } }, true);
 
 async function payWithUndo(it) { // ödendi/geldi: geri alınabilir
-  if (!it || !it.next) return; const before = it.next, tid = 'rp:' + it.id + ':' + before; const had = S.items.get(tid);
+  if (!it || !(it.next || it.undated)) return; const und = !!it.undated, before = it.next, tid = 'rp:' + it.id + ':' + (before || today()); const had = S.items.get(tid);
   await regPay(it); render();
-  toast(Lx(it.title + ' kaydedildi', it.title + ' recorded') + (it.next ? ' · ' + Lx('sonraki: ', 'next: ') + relDay(it.next) : ''), { label: tr('Geri al'), fn: async () => { const t = S.items.get(tid); if (t && !t.deleted && !(had && !had.deleted)) await remove(t, { silent: true }); it.next = before; await save(it); regMirror(it); } });
+  toast(Lx(it.title + ' kaydedildi', it.title + ' recorded') + (it.next ? ' · ' + Lx('sonraki: ', 'next: ') + relDay(it.next) : ''), { label: tr('Geri al'), fn: async () => { const t = S.items.get(tid); if (t && !t.deleted && !(had && !had.deleted)) await remove(t, { silent: true }); it.next = before; if (und) it.undated = true; await save(it); regMirror(it); } });
 }
 ACTIONS['reg-pay'] = el => payWithUndo(S.items.get(el.dataset.id));
 

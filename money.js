@@ -126,9 +126,10 @@ const regs = () => list('regpay').sort((a, b) => (a.next || '9999').localeCompar
 const regDue = () => regs().filter(r => r.next && r.next <= today() && r.mode !== 'auto' && !r.paused);
 function regAdvance(r) { if (!r.rec) { r.next = ''; return; } if (!r.rec.anchorDay && r.next) r.rec.anchorDay = +r.next.slice(8, 10); let n = nextOcc(r.next, r.rec); if (r.rec.until && n > r.rec.until) n = ''; r.next = n; }
 async function regPay(r, skip) {
-  const day = r.next; if (r.rec && !r.rec.anchorDay && day) r.rec.anchorDay = +day.slice(8, 10);
+  const day = r.next || today(); // tarihsiz (ne zaman ödeneceği belli olmayan) kalem: bugün ödendi if (r.rec && !r.rec.anchorDay && day) r.rec.anchorDay = +day.slice(8, 10);
   const tid = 'rp:' + r.id + ':' + day, ex = S.items.get(tid);
   if (!skip && !(ex && !ex.deleted)) await save({ id: tid, type: 'tx', date: day <= today() ? day : today(), dir: r.dir, amount: r.amount, cat: r.cat || defCat(r.dir), acct: r.acct || defAcct(), note: r.title, reg: r.id, src: 'regular' }, { silent: true });
+  if (r.undated) { r.undated = false; r.next = day; }
   regAdvance(r); await save(r, { silent: true }); regMirror(r);
 }
 let mAutoDay = '';
@@ -304,7 +305,7 @@ function editReg(r, preset) {
     '<div class="field-row"><label class="field"><span>Tutar (₺)</span><input class="input" name="amt" inputmode="decimal" placeholder="0" value="' + (d.amount ? numIn(d.amount) : '') + '"></label><label class="field"><span>Kategori</span><select class="input" name="rCat"' + (d.cat ? ' data-manual="1"' : '') + '>' + catOptions(d.dir, d.cat || defCat(d.dir)) + '</select></label></div>' +
     (accts().length ? '<label class="field"><span>Hesap</span><select class="input" name="acct">' + acctOptions(d.acct, true) + '</select></label>' : '') +
     evRecEditor(d.rec) +
-    '<div class="field-row"><label class="field"><span>Sonraki tarih</span><input type="date" class="input" name="next" value="' + (d.next || '') + '"></label><label class="field"><span>Saat (isteğe bağlı)</span><input type="time" class="input" name="rtime" value="' + (d.time || '') + '"></label></div>' +
+    '<div class="field-row"><label class="field"><span>' + (d.rec ? 'Sonraki tarih' : 'Tarih (boş bırakılabilir)') + '</span><input type="date" class="input" name="next" value="' + (d.next || '') + '"><button type="button" class="link sm nodate-l" data-act="reg-nodate">' + tr('Tarihi belli değil') + '</button></label><label class="field"><span>Saat (isteğe bağlı)</span><input type="time" class="input" name="rtime" value="' + (d.time || '') + '"></label></div>' +
     '<div class="field"><span>Günü gelince</span>' + seg('rMode', [['ask', 'Sor (Ödendi mi?)'], ['auto', 'Otomatik kaydet']], d.mode) + '</div>' +
     remindEditor(d.remind) +
     (Cal.on() ? '<div class="set-row"><div class="grow"><div>Google Takvim’e yaz</div><div class="sub">Ödeme günü takviminde görünür; hatırlatma telefonuna gelir</div></div><button type="button" class="switch ' + (d.toCal ? 'on' : '') + '" data-act="switch" data-name="rCal" aria-label="Aç/kapat"></button></div>' : '') +
@@ -326,7 +327,8 @@ async function saveReg() {
   const base = S.items.get(d.id) || d; const dir = segVal('rDir') || 'out';
   const rec = readEvRec(); if (rec && fval('next')) rec.anchorDay = +fval('next').slice(8, 10);
   const sw = n => { const el = $('#sheetRoot .switch[data-name=' + n + ']'); return el ? el.classList.contains('on') : undefined; };
-  Object.assign(base, { title, dir, amount, cat: fval('rCat') || defCat(dir), acct: fval('acct') || '', rec, next: fval('next') || today(), time: fval('rtime') || '', mode: segVal('rMode') || 'ask', remind: readRemind() });
+  const und = !rec && !fval('next'); // planlı ödemede tarih zorunlu değil (ör. kişisel borç)
+  Object.assign(base, { title, dir, amount, cat: fval('rCat') || defCat(dir), acct: fval('acct') || '', rec, next: und ? '' : (fval('next') || today()), undated: und, time: und ? '' : (fval('rtime') || ''), mode: und ? 'ask' : (segVal('rMode') || 'ask'), remind: und ? [] : readRemind() });
   if (sw('rCal') !== undefined) base.toCal = sw('rCal'); if (sw('rPause') !== undefined) base.paused = sw('rPause');
   closeSheet(); mAutoDay = ''; await save(base); regMirror(base);
 }
@@ -546,6 +548,7 @@ Object.assign(ACTIONS, {
   'imp-flip': el => { if (!IMP) return; IMP.map.flip = !IMP.map.flip; el.classList.toggle('on', IMP.map.flip); impPreview(); },
   'reg-new': () => editReg(),
   'reg-edit': el => { const r = S.items.get(el.dataset.id); if (r) editReg(r); },
+  'reg-nodate': () => { const i = $('#sheetRoot [name=next]'); if (i) i.value = ''; const t = $('#sheetRoot [name=rtime]'); if (t) t.value = ''; toast(tr('Tarihsiz kaydedilecek; Planlı’da ayrı durur')); },
   'reg-save': () => saveReg(),
   'reg-delete': async () => { const it = S.items.get(S.draft.id); if (!it) return closeSheet(); if (!ask(Lx('“' + it.title + '” silinsin mi? (Geçmiş kayıtlar kalır)', 'Delete “' + it.title + '”? (Past entries stay)'))) return; closeSheet(); it.deleted = true; regMirror(it); await save(it); },
   'reg-pay': async el => { const r = S.items.get(el.dataset.id); if (!r) return; const before = r.next; await regPay(r); render(); toast(Lx(r.title + ' kaydedildi', r.title + ' recorded') + (r.next ? ' · ' + Lx('sonraki: ', 'next: ') + relDay(r.next) : '')); },

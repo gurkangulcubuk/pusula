@@ -99,7 +99,7 @@ const TOOLS = [
   ['pomo', 'Odak sayacı', 'Pomodoro: çalış, mola ver', 'goal'],
   ['loan', 'Kredi ve taksit', 'Aylık taksit, toplam faiz', 'percent'],
   ['dates', 'Tarih hesabı', 'İki tarih arası, gün ekle', 'event'],
-  ['units', 'Birim çevirici', 'Uzunluk, ağırlık, döviz…', 'swap'],
+  ['units', 'Birim çevirici', 'Döviz, altın, kripto, uzunluk…', 'swap'],
   ['decide', 'Karar verici', 'Zar, yazı-tura, rastgele seç', 'dice']
 ];
 const GAMES = [
@@ -335,12 +335,37 @@ const UNITS = {
   area: { name: 'Alan', u: { m2: ['Metrekare', 1], km2: ['Kilometrekare', 1e6], donum: ['Dönüm', 1000], ha: ['Hektar', 10000], ft2: ['Ayakkare', 0.092903], acre: ['Akre', 4046.86] } },
   speed: { name: 'Hız', u: { kmh: ['km/sa', 1 / 3.6], ms: ['m/sn', 1], mph: ['mil/sa', 0.44704], kn: ['Knot', 0.514444] } },
   data: { name: 'Veri', u: { b: ['Bayt', 1], kb: ['Kilobayt', 1024], mb: ['Megabayt', 1048576], gb: ['Gigabayt', 1073741824], tb: ['Terabayt', 1099511627776] } },
-  fx: { name: 'Döviz', u: {} }
+  fx: { name: 'Döviz', u: {} },
+  metal: { name: 'Değerli maden', u: {} },
+  crypto: { name: 'Kripto', u: {} }
 };
 const FX_LIST = ['TRY', 'USD', 'EUR', 'GBP', 'CHF', 'JPY', 'SAR', 'AED', 'RUB', 'CNY'];
+/* Değerli maden: kaynak ons fiyatı (XAU/XAG/XPT/XPD). Türk altınları has gram üzerinden hesaplanır (22 ayar = 0,9166);
+   kuyumcu satış fiyatı işçilik ve makas nedeniyle biraz farklı olur. */
+const OZ = 31.1034768;
+const METALS = {
+  GA: ['Gram altın (24 ayar)', 'XAU', OZ], A22: ['Gram altın (22 ayar)', 'XAU', OZ / 0.9166], CEYREK: ['Çeyrek altın', 'XAU', OZ / 1.6077], YARIM: ['Yarım altın', 'XAU', OZ / 3.2154],
+  TAM: ['Tam altın', 'XAU', OZ / 6.4309], ATA: ['Cumhuriyet altını', 'XAU', OZ / 6.6142], XAU: ['Ons altın', 'XAU', 1],
+  GG: ['Gram gümüş', 'XAG', OZ], XAG: ['Ons gümüş', 'XAG', 1], XPT: ['Ons platin', 'XPT', 1], XPD: ['Ons paladyum', 'XPD', 1]
+};
+const CRYPTO = { BTC: ['Bitcoin (BTC)', 'bitcoin'], ETH: ['Ethereum (ETH)', 'ethereum'], USDT: ['Tether (USDT)', 'tether'], BNB: ['BNB', 'binancecoin'], SOL: ['Solana (SOL)', 'solana'], XRP: ['XRP', 'ripple'], USDC: ['USD Coin (USDC)', 'usd-coin'], ADA: ['Cardano (ADA)', 'cardano'], DOGE: ['Dogecoin (DOGE)', 'dogecoin'], TRX: ['Tron (TRX)', 'tron'], AVAX: ['Avalanche (AVAX)', 'avalanche-2'], DOT: ['Polkadot (DOT)', 'polkadot'], LTC: ['Litecoin (LTC)', 'litecoin'], LINK: ['Chainlink (LINK)', 'chainlink'], TON: ['Toncoin (TON)', 'the-open-network'], SHIB: ['Shiba Inu (SHIB)', 'shiba-inu'] };
+const RATE_CATS = { fx: 1, metal: 1, crypto: 1 };
+const MONEY_BASE = ['TRY', 'USD', 'EUR'];
+function fxRate(c) { // 1 EUR = ? birim
+  const fx = lsj('pusula.fx', null); if (!fx) return 0; const R = fx.rates || {};
+  if (c === 'EUR') return 1;
+  if (METALS[c]) { const b = R[METALS[c][1]]; return b ? b * METALS[c][2] : 0; }
+  return R[c] || 0;
+}
 const UV = { cat: 'length', from: 'm', to: 'km', val: '1' };
-function openUnits() { toolSheet(T_('Birim çevirici'), '<div id="unWrap"></div>'); unitsRender(); if (UV.cat === 'fx') fxLoad(); }
-function unitDefs(cat) { if (cat !== 'fx') return UNITS[cat].u; const o = {}; FX_LIST.forEach(c => { o[c] = [c]; }); return o; }
+function openUnits() { toolSheet(T_('Birim çevirici'), '<div id="unWrap"></div>'); unitsRender(); if (RATE_CATS[UV.cat]) fxLoad(); }
+function unitDefs(cat) {
+  if (!RATE_CATS[cat]) return UNITS[cat].u; const o = {};
+  if (cat === 'fx') FX_LIST.forEach(c => { o[c] = [c]; });
+  if (cat === 'metal') { Object.keys(METALS).forEach(k => { o[k] = [METALS[k][0]]; }); MONEY_BASE.forEach(c => { o[c] = [c]; }); }
+  if (cat === 'crypto') { Object.keys(CRYPTO).forEach(k => { o[k] = [CRYPTO[k][0]]; }); MONEY_BASE.forEach(c => { o[c] = [c]; }); }
+  return o;
+}
 function unitsRender() {
   const w = $('#unWrap'); if (!w) return; const defs = unitDefs(UV.cat);
   if (!defs[UV.from]) UV.from = Object.keys(defs)[0]; if (!defs[UV.to]) UV.to = Object.keys(defs)[1];
@@ -348,15 +373,15 @@ function unitsRender() {
   w.innerHTML = '<div class="chips un-cats">' + Object.keys(UNITS).map(k => '<button class="chip ' + (UV.cat === k ? 'on' : '') + '" data-act="un-cat" data-k="' + k + '">' + UNITS[k].name + '</button>').join('') + '</div>' +
     '<label class="field"><span>Değer</span><input class="input big-num" type="text" inputmode="decimal" id="unVal" value="' + esc(UV.val) + '" autocomplete="off"></label>' +
     '<div class="un-pair">' + sel('unFrom', UV.from) + '<button class="icon-btn" data-act="un-swap" aria-label="Yer değiştir">' + icon('swap') + '</button>' + sel('unTo', UV.to) + '</div>' +
-    '<div class="un-res" id="unRes"></div>' + (UV.cat === 'fx' ? '<p class="muted sm" id="fxInfo"></p>' : '');
-  translateTree(w); unitsCalc(); if (UV.cat === 'fx') fxInfo();
+    '<div class="un-res" id="unRes"></div>' + (RATE_CATS[UV.cat] ? '<p class="muted sm" id="fxInfo"></p>' : '');
+  translateTree(w); unitsCalc(); if (RATE_CATS[UV.cat]) fxInfo();
 }
 function unitsCalc() {
   const r = $('#unRes'); if (!r) return; const v = numTR(UV.val);
   if (isNaN(v)) { r.textContent = ''; return; }
   let out;
   if (UV.cat === 'temp') { const c = UV.from === 'c' ? v : UV.from === 'f' ? (v - 32) * 5 / 9 : v - 273.15; out = UV.to === 'c' ? c : UV.to === 'f' ? c * 9 / 5 + 32 : c + 273.15; }
-  else if (UV.cat === 'fx') { const fx = lsj('pusula.fx', null); if (!fx) { r.textContent = fxErr ? tr('Kurlar alınamadı') : tr('Kurlar yükleniyor…'); return; } const toEur = c => c === 'EUR' ? 1 : fx.rates[c]; if (!toEur(UV.from) || !toEur(UV.to)) { r.textContent = fxBusy ? tr('Kurlar yükleniyor…') : tr('Bu para birimi için kur yok; Yenile’ye dokun.'); return; } out = v / toEur(UV.from) * toEur(UV.to); }
+  else if (RATE_CATS[UV.cat]) { const fx = lsj('pusula.fx', null); if (!fx) { r.textContent = fxErr ? tr('Kurlar alınamadı') : tr('Kurlar yükleniyor…'); return; } const toEur = fxRate; if (!toEur(UV.from) || !toEur(UV.to)) { r.textContent = fxBusy ? tr('Kurlar yükleniyor…') : tr('Bu para birimi için kur yok; Yenile’ye dokun.'); return; } out = v / toEur(UV.from) * toEur(UV.to); }
   else { const d = UNITS[UV.cat].u; out = v * d[UV.from][1] / d[UV.to][1]; }
   const ax = Math.abs(out); r.innerHTML = '<b>' + Number(out).toLocaleString(TR, { maximumFractionDigits: ax < 1 ? 6 : ax < 100 ? 4 : 2 }) + '</b> <span>' + esc(unitDefs(UV.cat)[UV.to][0]) + '</span>';
 }
@@ -365,27 +390,34 @@ function unitsCalc() {
 let fxBusy = false, fxErr = false;
 async function fxGet(url) { const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
 function fxInfo() { const fx = lsj('pusula.fx', null); const el = $('#fxInfo'); if (!el) return;
-    el.innerHTML = fxBusy ? esc(tr('Kurlar güncelleniyor…')) : fx ? esc(Lx('Kur tarihi: ' + fx.date + ' · ' + (fx.src || 'Avrupa Merkez Bankası') + '. İnternetsizken son kurlar kullanılır.', 'Rates from ' + fx.date + ' · ' + (fx.src || 'European Central Bank') + '. Last rates are used offline.')) + ' <button class="link" data-act="fx-refresh">' + esc(tr('Yenile')) + '</button>'
+    const note = !fx ? '' : UV.cat === 'metal' ? Lx('Ons fiyatından has değer; kuyumcu fiyatı işçilik ve makas nedeniyle biraz farklı olur. Gün sonu fiyatı · ' + fx.date + '.', 'Pure-gold value from the ounce price; jewellers differ slightly. Daily close · ' + fx.date + '.')
+      : UV.cat === 'crypto' ? Lx('Kripto fiyatı: ' + (fx.cAt ? new Date(fx.cAt).toLocaleTimeString(TR, { hour: '2-digit', minute: '2-digit' }) + ' · CoinGecko' : 'gün sonu · ' + fx.date) + '.', 'Crypto price: ' + (fx.cAt ? new Date(fx.cAt).toLocaleTimeString(TR, { hour: '2-digit', minute: '2-digit' }) + ' · CoinGecko' : 'daily close · ' + fx.date) + '.')
+      : Lx('Kur tarihi: ' + fx.date + ' · ' + (fx.src || 'Avrupa Merkez Bankası') + '. İnternetsizken son kurlar kullanılır.', 'Rates from ' + fx.date + ' · ' + (fx.src || 'European Central Bank') + '. Last rates are used offline.');
+    el.innerHTML = fxBusy ? esc(tr('Kurlar güncelleniyor…')) : fx ? esc(note) + ' <button class="link" data-act="fx-refresh">' + esc(tr('Yenile')) + '</button>'
       : esc(fxErr ? tr('Kurlar alınamadı. İnternetini kontrol edip tekrar dene.') : tr('Kurlar için internet gerekli.')) + ' <button class="link" data-act="fx-refresh">' + esc(tr('Tekrar dene')) + '</button>'; }
 async function fxLoad(force) {
   const info = fxInfo;
   const fx = lsj('pusula.fx', null);
-  if (!force && fx && fx.at && Date.now() - fx.at < 6 * 3600000 && FX_LIST.every(c => c === 'EUR' || (fx.rates || {})[c])) { info(); return; }
+  const cryptoOld = UV.cat === 'crypto' && (!fx || !fx.cAt || Date.now() - fx.cAt > 10 * 60000); // kripto anlık değişir: 10 dk
+  if (!force && !cryptoOld && fx && fx.at && Date.now() - fx.at < 6 * 3600000 && FX_LIST.concat(['XAU', 'BTC']).every(c => c === 'EUR' || (fx.rates || {})[c])) { info(); return; }
   if (!navigator.onLine || fxBusy) { info(); return; }
   fxBusy = true; fxErr = false; info(); unitsCalc();
-  const [ecb, alt] = await Promise.allSettled([
+  const [ecb, alt, cgk] = await Promise.allSettled([
     fxGet('https://api.frankfurter.dev/v1/latest?base=EUR').catch(() => fxGet('https://api.frankfurter.app/latest?from=EUR')),
-    fxGet('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json').catch(() => fxGet('https://latest.currency-api.pages.dev/v1/currencies/eur.json'))
+    fxGet('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json').catch(() => fxGet('https://latest.currency-api.pages.dev/v1/currencies/eur.json')),
+    fxGet('https://api.coingecko.com/api/v3/simple/price?vs_currencies=eur&ids=' + Object.values(CRYPTO).map(x => x[1]).join(','))
   ]);
   const rates = {}; let date = '', src = [];
   if (alt.status === 'fulfilled' && alt.value && alt.value.eur) { Object.entries(alt.value.eur).forEach(([k, v]) => { if (typeof v === 'number' && v > 0) rates[k.toUpperCase()] = v; }); date = alt.value.date || date; src.push(tr('açık kur verisi')); }
   if (ecb.status === 'fulfilled' && ecb.value && ecb.value.rates) { Object.assign(rates, ecb.value.rates); date = ecb.value.date || date; src.unshift(tr('Avrupa Merkez Bankası')); }
+  let cAt = 0; // kripto: CoinGecko anlık fiyat (yoksa günlük liste)
+  if (cgk.status === 'fulfilled' && cgk.value) Object.keys(CRYPTO).forEach(k => { const p = (cgk.value[CRYPTO[k][1]] || {}).eur; if (p > 0) { rates[k] = 1 / p; cAt = Date.now(); } });
   fxBusy = false;
-  if (Object.keys(rates).length) lsjw('pusula.fx', { date, rates, at: Date.now(), src: src.join(' + ') }); else fxErr = true;
+  if (Object.keys(rates).length) lsjw('pusula.fx', { date, rates, at: Date.now(), cAt, src: src.join(' + ') }); else fxErr = true;
   info(); unitsCalc();
 }
 Object.assign(ACTIONS, {
-  'un-cat': el => { UV.cat = el.dataset.k; UV.from = ''; UV.to = ''; if (UV.cat === 'fx') { UV.from = 'USD'; UV.to = 'TRY'; } unitsRender(); if (UV.cat === 'fx') fxLoad(); },
+  'un-cat': el => { UV.cat = el.dataset.k; UV.from = ''; UV.to = ''; const d0 = { fx: 'USD', metal: 'GA', crypto: 'BTC' }[UV.cat]; if (d0) { UV.from = d0; UV.to = 'TRY'; } unitsRender(); if (RATE_CATS[UV.cat]) fxLoad(); },
   'un-swap': () => { const a = UV.from; UV.from = UV.to; UV.to = a; unitsRender(); },
   'fx-refresh': () => fxLoad(true)
 });
@@ -722,3 +754,10 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); wordKey('ENTER'); } else if (e.key === 'Backspace') { e.preventDefault(); wordKey('DEL'); }
   else { const k = WG.lang === 'tr' ? e.key.toLocaleLowerCase('tr-TR') : e.key.toLowerCase(); if (k.length === 1 && WCFG[WG.lang].alpha.test(k)) wordKey(k); }
 });
+
+/* 1.23: değerli maden ve kripto çevirici için İngilizce karşılıklar */
+(function () {
+  const add = { 'Değerli maden': 'Precious metals', 'Kripto': 'Crypto', 'Gram altın (24 ayar)': 'Gold, gram (24k)', 'Gram altın (22 ayar)': 'Gold, gram (22k)', 'Çeyrek altın': 'Quarter gold coin', 'Yarım altın': 'Half gold coin', 'Tam altın': 'Full gold coin', 'Cumhuriyet altını': 'Republic gold coin', 'Ons altın': 'Gold, ounce', 'Gram gümüş': 'Silver, gram', 'Ons gümüş': 'Silver, ounce', 'Ons platin': 'Platinum, ounce', 'Ons paladyum': 'Palladium, ounce',
+    'Tarihi belli değil': 'No date yet', 'Tarih (boş bırakılabilir)': 'Date (optional)', 'borç · tarihsiz': 'owe · no date', 'alacak · tarihsiz': 'owed · no date', 'Tarihsiz kaydedilecek; Planlı’da ayrı durur': 'Saved without a date; listed separately in Planned', 'Döviz, altın, kripto, uzunluk…': 'Currency, gold, crypto, length…' };
+  for (const k in add) if (!(k in EN)) EN[k] = add[k];
+})();

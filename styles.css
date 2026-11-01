@@ -1119,3 +1119,5 @@ body{font-size:calc(16px*var(--fs))}
 .note-ed{border-top:0!important;background:color-mix(in srgb,var(--nc,transparent) 13%,transparent);border-radius:14px}
 .note-ed[style*="--nc"] .note-body,.note-ed[style*="--nc"] #noteTitle{background:transparent}
 .note-ed .nc-row{display:flex;gap:8px;padding:8px 2px 2px;flex-wrap:wrap}
+/* 1.23: planlı ödemede tarihsiz */
+.nodate-l{display:block;margin-top:4px;font-size:12.5px;text-align:left}

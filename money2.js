@@ -57,7 +57,14 @@ function viewPlanFlow() {
     '<div class="set-row flow-sw"><div class="grow"><div>' + tr('Gelirleri ve düzenli kalemleri de kat') + '</div><div class="sub">' + tr('Maaş, kira, fatura da tarih sırasına girer; kapalıyken sadece planlı ödemeler bugünkü bakiyeden düşer') + '</div></div><button type="button" class="switch ' + (flowAll() ? 'on' : '') + '" data-act="flow-all" aria-label="Aç/kapat"></button></div>';
   if (run) h += '<div class="m-tiles"><div class="m-tile"><span>' + tr('Bugün') + '</span><b>' + fmtTL(run.start) + '</b></div><div class="m-tile ' + (run.tot < 0 ? 'neg' : '') + '"><span>' + Lx(days === 365 ? '1 yıl sonra' : days + ' gün sonra', days === 365 ? 'In 1 year' : 'In ' + days + ' days') + '</span><b>' + fmtTL(run.tot) + '</b></div><div class="m-tile ' + (run.low.v < 0 ? 'neg' : '') + '"><span>' + tr('En düşük') + ' · ' + fmtShort(run.low.d) + '</span><b>' + fmtTL(run.low.v) + '</b></div></div>';
   else h += '<div class="card"><div class="empty">' + tr('Ödeme sonrası kalan bakiyeyi görmek için Hesaplar’dan hesaplarını ekle.') + ' <button class="link" data-act="money-sub" data-k="accounts">' + esc(T('mAccounts')) + '</button></div></div>';
-  if (!evs.length) return h + '<div class="card"><div class="empty">' + tr('Bu aralıkta planlı bir şey yok. “+ Planlı ödeme” ile ekle.') + '</div></div>';
+  const und = regs().filter(r => r.undated && !r.paused);
+  if (und.length) { // tarihi belli olmayanlar (ör. kişisel borçlar): akışa girmez, ayrı durur
+    const out = und.filter(r => r.dir !== 'in').reduce((a, r) => a + r.amount, 0), inn = und.filter(r => r.dir === 'in').reduce((a, r) => a + r.amount, 0);
+    h += '<div class="section-title"><span>' + tr('Tarihi belli değil') + '</span><span class="muted sm">' + [out ? Lx('borç ', 'owe ') + fmtTL(out) : '', inn ? Lx('alacak ', 'owed ') + fmtTL(inn) : ''].filter(Boolean).join(' · ') + '</span></div><div class="card">' +
+      und.map(r => { const c = mcat(r.cat); return '<div class="row flow-row" data-act="reg-edit" data-id="' + r.id + '"><span class="tx-dot" style="background:' + c.color + '">' + icon(r.dir === 'in' ? 'income' : 'expense', 'xs') + '</span><div class="row-main"><div class="row-title u">' + esc(r.title) + '</div><div class="row-meta"><span>' + tr(r.dir === 'in' ? 'alacak · tarihsiz' : 'borç · tarihsiz') + '</span></div></div>' +
+        '<div class="reg-right"><b class="' + (r.dir === 'in' ? 'pos' : 'neg') + '">' + fmtTL(r.dir === 'in' ? r.amount : -r.amount, true) + '</b><span class="reg-btns"><button class="btn sm-btn primary" data-act="reg-pay" data-id="' + r.id + '">' + (r.dir === 'in' ? tr('Geldi') : tr('Ödendi')) + '</button></span></div></div>'; }).join('') + '</div>';
+  }
+  if (!evs.length) return h + (und.length ? '' : '<div class="card"><div class="empty">' + tr('Bu aralıkta planlı bir şey yok. “+ Planlı ödeme” ile ekle.') + '</div></div>');
   let mon = '';
   evs.forEach(e => {
     const m = monthOf(e.date); if (m !== mon) { if (mon) h += '</div>'; mon = m; h += '<div class="section-title"><span>' + monthLabel(m) + '</span></div><div class="card">'; }
