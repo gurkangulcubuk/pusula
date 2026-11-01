@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.19.0';
+const VERSION = '1.19.1';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -985,7 +985,7 @@ function closeSheet(fromPop) {
   S.draft = null;
   if (!fromPop && history.state && history.state.sheet) { S.ignorePop = true; history.back(); }
 }
-window.addEventListener('popstate', () => closeSheet(true));
+window.addEventListener('popstate', () => { if (S.ignorePop) return; closeSheet(true); }); // kendi history.back'imiz (S.ignorePop) yeni açılan pencereyi kapatmasın
 const sheetHead = (title) => '<div class="sheet-head"><h2>' + title + '</h2><button class="icon-btn" data-act="close-sheet" aria-label="Kapat">' + icon('x') + '</button></div>';
 function seg(name, options, val) {
   return '<div class="seg" data-name="' + name + '">' + options.map(o => '<button type="button" class="' + (String(o[0]) === String(val) ? 'on' : '') + '" data-act="seg-pick" data-v="' + esc(o[0]) + '">' + esc(o[1]) + '</button>').join('') + '</div>';

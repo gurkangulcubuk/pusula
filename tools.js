@@ -9,6 +9,30 @@
 })();
 
 /* ===================== Ortak ===================== */
+/* Sayılar: Türkçe biçim (binlik nokta, ondalık virgül). numTR "1.250.000,5" → 1250000.5; numIn 1250000.5 → "1.250.000,5" */
+function numTR(v) {
+  let s = String(v == null ? '' : v).trim().replace(/\s|₺/g, '').replace('−', '-'); if (!s) return NaN;
+  if (s.includes(',') && s.includes('.')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (s.includes(',')) s = s.replace(',', '.');
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  return parseFloat(s);
+}
+const numIn = n => (n === '' || n == null || isNaN(n)) ? '' : Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 6 });
+/* Yazarken binlik ayırıcı: tutar alanlarında her 3 basamakta nokta. Nokta tuşu ondalık virgül sayılır. */
+const GRP_SEL = 'input[name=amt],input[name=mAmt],input[name=opening],.bal-in,[data-cat-limit],#lnA,#unVal';
+document.addEventListener('input', e => {
+  const el = e.target; if (!el.matches || !el.matches(GRP_SEL)) return;
+  let v = el.value, pos = el.selectionStart == null ? v.length : el.selectionStart;
+  if (e.data === '.' && e.inputType === 'insertText') { v = v.slice(0, pos - 1) + ',' + v.slice(pos); } // nokta tuşu → virgül
+  const keep = v.slice(0, pos).replace(/[^\d,]/g, '').length;
+  const neg = /^\s*[-−]/.test(v); let t = v.replace(/[^\d,]/g, ''); const i = t.indexOf(',');
+  let int = i < 0 ? t : t.slice(0, i); const dec = i < 0 ? '' : ',' + t.slice(i + 1).replace(/,/g, '');
+  int = int.replace(/^0+(?=\d)/, '');
+  const out = (neg ? '-' : '') + int.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + dec;
+  if (out === el.value) return; el.value = out;
+  let n = 0, q = out.length; if (keep === 0) q = neg ? 1 : 0; else for (let k = 0; k < out.length; k++) { if (/[\d,]/.test(out[k])) n++; if (n === keep) { q = k + 1; break; } }
+  try { el.setSelectionRange(q, q); } catch (x) { /* yok */ }
+}, true);
 const lsj = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 const lsjw = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* yok */ } };
 /* Eşitlenen araç verisi: skorlar, geçmişler ve ayarlar 'td:<anahtar>' kaydı olarak saklanır (Drive'a gider).
@@ -136,6 +160,8 @@ function calcEval(expr) {
   return st.length === 1 ? st[0] : NaN;
 }
 const calcFmt = n => !isFinite(n) ? (isNaN(n) ? '' : '∞') : (Math.abs(n) >= 1e15 || (Math.abs(n) < 1e-9 && n !== 0) ? n.toExponential(6) : String(Math.round(n * 1e10) / 1e10)).replace('.', ',');
+// ekranda gruplu göster, ifade ham kalır: 1234567,891 → 1.234.567,891
+const calcGrp = s => /e/i.test(s || '') ? (s || '') : String(s || '').replace(/(\d+)(,\d*)?/g, (m, a, b) => a.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (b || ''));
 function openCalc() {
   CALC.hist = tdGet('calc', []);
   const keys = [['C', 'k-fn'], ['⌫', 'k-fn'], ['%', 'k-fn'], ['÷', 'k-op'], ['7'], ['8'], ['9'], ['×', 'k-op'], ['4'], ['5'], ['6'], ['−', 'k-op'], ['1'], ['2'], ['3'], ['+', 'k-op'], ['±', 'k-fn'], ['0'], [','], ['=', 'k-eq']];
@@ -147,9 +173,9 @@ function openCalc() {
 function T_(s) { return tr(s); }
 function calcRender() {
   const e = $('#calcExpr'), r = $('#calcRes'), h = $('#calcHist'); if (!e) return;
-  e.textContent = CALC.expr || ' ';
-  const v = calcEval(CALC.expr); r.textContent = CALC.expr ? (calcFmt(v) || '…') : '0';
-  h.innerHTML = CALC.hist.length ? CALC.hist.slice().reverse().map((x, i) => '<button class="ch-row" data-act="calc-use" data-i="' + (CALC.hist.length - 1 - i) + '"><span class="u">' + esc(x.e) + '</span><b class="u">= ' + esc(x.r) + '</b></button>').join('') : '<div class="empty">Henüz hesap yok.</div>';
+  e.textContent = calcGrp(CALC.expr) || ' ';
+  const v = calcEval(CALC.expr); r.textContent = CALC.expr ? (calcGrp(calcFmt(v)) || '…') : '0';
+  h.innerHTML = CALC.hist.length ? CALC.hist.slice().reverse().map((x, i) => '<button class="ch-row" data-act="calc-use" data-i="' + (CALC.hist.length - 1 - i) + '"><span class="u">' + esc(calcGrp(x.e)) + '</span><b class="u">= ' + esc(calcGrp(x.r)) + '</b></button>').join('') : '<div class="empty">Henüz hesap yok.</div>';
 }
 Object.assign(ACTIONS, {
   'calc-key': el => {
@@ -163,7 +189,7 @@ Object.assign(ACTIONS, {
     else x += k;
     CALC.expr = x; calcRender();
   },
-  'calc-use': el => { const h = CALC.hist[+el.dataset.i]; if (!h) return; CALC.expr = h.r; calcRender(); try { navigator.clipboard.writeText(h.r).then(() => toast(tr('Sonuç kopyalandı'))).catch(() => {}); } catch (e) { /* yok */ } },
+  'calc-use': el => { const h = CALC.hist[+el.dataset.i]; if (!h) return; CALC.expr = h.r; calcRender(); try { navigator.clipboard.writeText(calcGrp(h.r)).then(() => toast(tr('Sonuç kopyalandı'))).catch(() => {}); } catch (e) { /* yok */ } },
   'calc-clear': () => { if (!CALC.hist.length || !ask('Hesap geçmişi silinsin mi?')) return; CALC.hist = []; tdSet('calc', []); calcRender(); }
 });
 
@@ -248,15 +274,15 @@ Object.assign(ACTIONS, {
 /* ===================== Kredi ve taksit ===================== */
 function openLoan() {
   const c = tdGet('loan', { amount: 100000, rate: 3.5, months: 12, kind: 'monthly' });
-  toolSheet(T_('Kredi ve taksit'), '<div class="loan"><label class="field"><span>Kredi tutarı (₺)</span><input class="input" type="number" inputmode="decimal" id="lnA" value="' + c.amount + '"></label>' +
-    '<div class="field-row"><label class="field"><span>Faiz oranı (%)</span><input class="input" type="number" inputmode="decimal" step="any" id="lnR" value="' + c.rate + '"></label><label class="field"><span>Vade (ay)</span><input class="input" type="number" inputmode="numeric" id="lnM" value="' + c.months + '"></label></div>' +
+  toolSheet(T_('Kredi ve taksit'), '<div class="loan"><label class="field"><span>Kredi tutarı (₺)</span><input class="input" type="text" inputmode="decimal" id="lnA" value="' + numIn(c.amount) + '" autocomplete="off"></label>' +
+    '<div class="field-row"><label class="field"><span>Faiz oranı (%)</span><input class="input" type="text" inputmode="decimal" id="lnR" value="' + numIn(c.rate) + '" autocomplete="off"></label><label class="field"><span>Vade (ay)</span><input class="input" type="number" inputmode="numeric" id="lnM" value="' + c.months + '"></label></div>' +
     '<div class="field"><span>Faiz türü</span>' + seg('lnKind', [['monthly', 'Aylık'], ['yearly', 'Yıllık']], c.kind) + '</div>' +
     '<div id="lnOut"></div><p class="muted sm">Vergi ve masraflar (BSMV, KKDF, dosya ücreti) dahil değildir; bankanın teklifiyle karşılaştırmak için yaklaşık hesaptır.</p></div>');
   loanCalc();
 }
 let loanT = null;
 function loanCalc() {
-  const A = parseFloat($('#lnA') && $('#lnA').value) || 0, R = parseFloat($('#lnR').value) || 0, M = parseInt($('#lnM').value, 10) || 0;
+  const A = numTR($('#lnA') && $('#lnA').value) || 0, R = numTR($('#lnR').value) || 0, M = parseInt($('#lnM').value, 10) || 0;
   const kind = segVal('lnKind') || 'monthly'; clearTimeout(loanT); loanT = setTimeout(() => tdSet('loan', { amount: A, rate: R, months: M, kind }), 800);
   const out = $('#lnOut'); if (!out) return;
   if (!(A > 0 && M > 0)) { out.innerHTML = ''; return; }
@@ -313,13 +339,13 @@ function unitsRender() {
   if (!defs[UV.from]) UV.from = Object.keys(defs)[0]; if (!defs[UV.to]) UV.to = Object.keys(defs)[1];
   const sel = (id, cur) => '<select class="input" id="' + id + '">' + Object.keys(defs).map(k => '<option value="' + k + '" ' + (k === cur ? 'selected' : '') + '>' + esc(defs[k][0]) + '</option>').join('') + '</select>';
   w.innerHTML = '<div class="chips un-cats">' + Object.keys(UNITS).map(k => '<button class="chip ' + (UV.cat === k ? 'on' : '') + '" data-act="un-cat" data-k="' + k + '">' + UNITS[k].name + '</button>').join('') + '</div>' +
-    '<label class="field"><span>Değer</span><input class="input big-num" type="number" inputmode="decimal" step="any" id="unVal" value="' + esc(UV.val) + '"></label>' +
+    '<label class="field"><span>Değer</span><input class="input big-num" type="text" inputmode="decimal" id="unVal" value="' + esc(UV.val) + '" autocomplete="off"></label>' +
     '<div class="un-pair">' + sel('unFrom', UV.from) + '<button class="icon-btn" data-act="un-swap" aria-label="Yer değiştir">' + icon('swap') + '</button>' + sel('unTo', UV.to) + '</div>' +
     '<div class="un-res" id="unRes"></div>' + (UV.cat === 'fx' ? '<p class="muted sm" id="fxInfo"></p>' : '');
   translateTree(w); unitsCalc(); if (UV.cat === 'fx') fxInfo();
 }
 function unitsCalc() {
-  const r = $('#unRes'); if (!r) return; const v = parseFloat(UV.val);
+  const r = $('#unRes'); if (!r) return; const v = numTR(UV.val);
   if (isNaN(v)) { r.textContent = ''; return; }
   let out;
   if (UV.cat === 'temp') { const c = UV.from === 'c' ? v : UV.from === 'f' ? (v - 32) * 5 / 9 : v - 273.15; out = UV.to === 'c' ? c : UV.to === 'f' ? c * 9 / 5 + 32 : c + 273.15; }

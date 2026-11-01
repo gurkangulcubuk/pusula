@@ -91,7 +91,7 @@ function moneyEditor(m, item) {
   const tot = item ? list('tx').filter(t => t.link && t.link.id === item.id) : [];
   const sum = tot.reduce((a, t) => a + (t.dir === 'in' ? t.amount : -t.amount), 0);
   return '<div class="field money-ed"><span>Para (isteğe bağlı)</span>' + seg('mDir', [['', 'Yok'], ['in', 'Gelir'], ['out', 'Gider']], dir) +
-    '<div class="money-ed-body ' + (dir ? '' : 'hide') + '"><div class="field-row"><label class="field"><span>Tutar (₺)</span><input class="input" name="mAmt" inputmode="decimal" placeholder="0" value="' + (m.amount ? String(m.amount).replace('.', ',') : '') + '"></label>' +
+    '<div class="money-ed-body ' + (dir ? '' : 'hide') + '"><div class="field-row"><label class="field"><span>Tutar (₺)</span><input class="input" name="mAmt" inputmode="decimal" placeholder="0" value="' + (m.amount ? numIn(m.amount) : '') + '"></label>' +
     '<label class="field"><span>Kategori</span><select class="input" name="mCat">' + catOptions(dir || 'out', cat0) + '</select></label></div>' +
     (accts().length ? '<label class="field"><span>Hesap</span><select class="input" name="mAcct">' + acctOptions(m.acct || defAcct()) + '</select></label>' : '') +
     '<div class="sub muted sm">İşi “tamamladım / yaptım” diye işaretleyince bu tutar Cüzdan’a kendiliğinden kaydedilir.</div></div>' +
@@ -260,7 +260,7 @@ function editTx(t, preset) {
   const linkable = list('task').concat(list('routine')).sort((a, b) => (b.updated || 0) - (a.updated || 0)).slice(0, 80);
   openSheet(sheetHead(isNew ? 'Yeni kayıt' : 'Kaydı düzenle') + '<div class="sheet-body tx-ed">' +
     seg('txDir', [['out', 'Gider'], ['in', 'Gelir'], ['xfer', 'Transfer']], d.dir) +
-    '<input class="input big tx-amt-in" name="amt" inputmode="decimal" placeholder="0 ₺" value="' + (d.amount ? String(d.amount).replace('.', ',') : '') + '" autocomplete="off">' +
+    '<input class="input big tx-amt-in" name="amt" inputmode="decimal" placeholder="0 ₺" value="' + (d.amount ? numIn(d.amount) : '') + '" autocomplete="off">' +
     '<input class="input" name="note" placeholder="Açıklama (ör. Migros, kira, ders ücreti)" value="' + esc(d.note || '') + '" autocomplete="off">' +
     '<div class="field tx-cats ' + (d.dir === 'xfer' ? 'hide' : '') + '"><span>Kategori</span><div class="chips" id="txCats">' + txCatChips(d.dir === 'xfer' ? 'out' : d.dir, d.cat) + '</div></div>' +
     '<div class="field-row"><label class="field"><span>Tarih</span><input type="date" class="input" name="date" value="' + d.date + '"></label>' +
@@ -298,7 +298,7 @@ function editReg(r, preset) {
   openSheet(sheetHead(isNew ? (preset && preset.rec === null ? 'Yeni planlı ödeme' : 'Yeni düzenli kalem') : r.rec ? 'Düzenli kalemi düzenle' : 'Planlı ödemeyi düzenle') + '<div class="sheet-body">' +
     '<input class="input big" name="title" placeholder="Örn. Kira, Elektrik, Netflix, Maaş" value="' + esc(d.title) + '" autocomplete="off">' +
     seg('rDir', [['out', 'Gider'], ['in', 'Gelir']], d.dir) +
-    '<div class="field-row"><label class="field"><span>Tutar (₺)</span><input class="input" name="amt" inputmode="decimal" placeholder="0" value="' + (d.amount ? String(d.amount).replace('.', ',') : '') + '"></label><label class="field"><span>Kategori</span><select class="input" name="rCat"' + (d.cat ? ' data-manual="1"' : '') + '>' + catOptions(d.dir, d.cat || defCat(d.dir)) + '</select></label></div>' +
+    '<div class="field-row"><label class="field"><span>Tutar (₺)</span><input class="input" name="amt" inputmode="decimal" placeholder="0" value="' + (d.amount ? numIn(d.amount) : '') + '"></label><label class="field"><span>Kategori</span><select class="input" name="rCat"' + (d.cat ? ' data-manual="1"' : '') + '>' + catOptions(d.dir, d.cat || defCat(d.dir)) + '</select></label></div>' +
     (accts().length ? '<label class="field"><span>Hesap</span><select class="input" name="acct">' + acctOptions(d.acct, true) + '</select></label>' : '') +
     evRecEditor(d.rec) +
     '<div class="field-row"><label class="field"><span>Sonraki tarih</span><input type="date" class="input" name="next" value="' + (d.next || '') + '"></label><label class="field"><span>Saat (isteğe bağlı)</span><input type="time" class="input" name="rtime" value="' + (d.time || '') + '"></label></div>' +
@@ -334,7 +334,7 @@ function editAcct(a) {
   openSheet(sheetHead(isNew ? 'Yeni hesap' : 'Hesabı düzenle') + '<div class="sheet-body">' +
     '<input class="input big" name="name" placeholder="Örn. Ziraat, Cüzdan, Bonus kart" value="' + esc(d.name) + '" autocomplete="off">' +
     '<div class="field"><span>Tür</span>' + seg('aKind', Object.keys(ACCT_KINDS).map(k => [k, ACCT_KINDS[k][0]]), d.kind) + '</div>' +
-    '<div class="field-row"><label class="field"><span>Bakiye (₺)</span><input class="input" name="opening" inputmode="decimal" value="' + String(isNew ? '' : acctBal(d)).replace('.', ',') + '" placeholder="0"></label><label class="field"><span>Tarihi itibarıyla</span><input type="date" class="input" name="openDate" value="' + (isNew ? today() : today()) + '"></label></div>' +
+    '<div class="field-row"><label class="field"><span>Bakiye (₺)</span><input class="input" name="opening" inputmode="decimal" value="' + numIn(isNew ? '' : acctBal(d)) + '" placeholder="0"></label><label class="field"><span>Tarihi itibarıyla</span><input type="date" class="input" name="openDate" value="' + (isNew ? today() : today()) + '"></label></div>' +
     '<p class="muted sm" style="margin-top:-4px">Kredi kartı borcunu eksi yaz (örn. −4.500). Bu tarihten sonraki hareketler bakiyeye eklenir.</p>' +
     '<div class="field"><span>Renk</span><div class="chips">' + NOTE_COLORS.slice(1).map(c => '<button type="button" class="swatch ' + (d.color === c ? 'on' : '') + '" data-act="pick-color" data-c="' + c + '" style="background:' + c + '" aria-label="Renk"></button>').join('') + '</div></div>' +
     '<div class="set-row"><div class="grow"><div>Varsayılan hesap</div><div class="sub">Yeni kayıtlarda ve işlere bağlı tutarlarda kullanılır</div></div><button type="button" class="switch ' + (settings().moneyDefAcct === d.id || (isNew && !accts().length) ? 'on' : '') + '" data-act="switch" data-name="aDef" aria-label="Aç/kapat"></button></div>' +
