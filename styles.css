@@ -1082,3 +1082,28 @@ body{font-size:calc(16px*var(--fs))}
 .topbar,.tabbar,.fab{will-change:transform}
 .grid-cards{grid-template-columns:minmax(0,1fr)}
 @media(min-width:760px){.grid-cards{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+/* ===== 1.19: kullanım kolaylıkları ===== */
+#ptr{position:fixed;top:calc(env(safe-area-inset-top) + 8px);left:50%;z-index:25;width:38px;height:38px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;color:var(--muted);opacity:0;transform:translate(-50%,-50px);pointer-events:none;transition:opacity .15s}
+#ptr.show{opacity:1}#ptr.ready{color:var(--accent);border-color:var(--accent)}
+#ptr.spin svg{animation:ptrSpin .8s linear infinite}
+@keyframes ptrSpin{to{transform:rotate(360deg)}}
+.tip{display:flex;align-items:flex-start;gap:6px;margin:6px 0 10px;padding:8px 6px 8px 12px;border-radius:12px;background:var(--surface2);color:var(--muted);font-size:calc(13px*var(--fs));line-height:1.4}
+.tip span{flex:1;padding-top:4px}.tip .icon-btn{width:28px;height:28px;flex:0 0 auto}
+.foot-links{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin:18px 0 4px}
+.foot-links .week-link{margin:0}
+.sa-mic.rec{color:var(--danger);animation:micPulse 1s ease-in-out infinite}
+@keyframes micPulse{50%{opacity:.4}}
+.undo-row{align-items:center}.undo-row.done{opacity:.55}
+.rt-row,.reg-row,.flow-row{touch-action:pan-y;position:relative;transition:transform .18s ease}
+.rt-row.swiping,.reg-row.swiping,.flow-row.swiping{transition:none}
+/* büyük dokunma alanları */
+[data-big=on]{--tab-h:72px}
+[data-big=on] .row{padding-top:15px;padding-bottom:15px}
+[data-big=on] .icon-btn{min-width:46px;min-height:46px}
+[data-big=on] .btn{min-height:50px}
+[data-big=on] .chip{padding:9px 15px}
+[data-big=on] .check{transform:scale(1.15)}
+[data-big=on] .tab svg.i{width:27px;height:27px}
+/* sade hareket */
+[data-calm=on] *:not(.fc-bcircle):not(.fc-btext span):not(.sa-mic):not(#ptr svg){transition:none!important;animation:none!important}
+[data-calm=on]{scroll-behavior:auto}

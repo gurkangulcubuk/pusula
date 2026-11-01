@@ -113,7 +113,7 @@ function remShow(list) {
   const st = settings();
   remPlay(st.remindSound || 'zil'); if (navigator.vibrate && st.remindSound !== 'sessiz') navigator.vibrate([400, 200, 400, 200, 400]);
   if (document.hidden && 'Notification' in window && Notification.permission === 'granted' && navigator.serviceWorker) {
-    navigator.serviceWorker.getRegistration().then(reg => { if (reg) list.forEach(r => reg.showNotification('PUSULA · ' + r.title, { body: remWhenText(r), tag: r.key, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [300, 150, 300], requireInteraction: true })); }).catch(() => {});
+    navigator.serviceWorker.getRegistration().then(reg => { if (reg) list.forEach(r => reg.showNotification('PUSULA · ' + r.title, { body: remWhenText(r), tag: r.key, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [300, 150, 300], requireInteraction: true, data: { rem: r }, actions: typeof remActions === 'function' ? remActions(r) : [] })); }).catch(() => {});
   }
   remRender();
 }

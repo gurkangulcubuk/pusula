@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.18.2';
+const VERSION = '1.19.0';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -983,7 +983,7 @@ function closeSheet(fromPop) {
   if (fn) { try { fn(); } catch (e) { console.error(e); } }
   root.classList.remove('open'); root.innerHTML = ''; document.body.style.overflow = '';
   S.draft = null;
-  if (!fromPop && history.state && history.state.sheet) history.back();
+  if (!fromPop && history.state && history.state.sheet) { S.ignorePop = true; history.back(); }
 }
 window.addEventListener('popstate', () => closeSheet(true));
 const sheetHead = (title) => '<div class="sheet-head"><h2>' + title + '</h2><button class="icon-btn" data-act="close-sheet" aria-label="Kapat">' + icon('x') + '</button></div>';
@@ -1954,6 +1954,7 @@ function lookBody(st) {
     '<div class="set-sub">Yazı boyutu (punto)</div><div class="pad-x">' + segRow('fs', { '0.8': '%80', '0.9': '%90', '1.0': '%100' }, (Number(st.fs) || 1).toFixed(1)) + '</div>' +
     '<div class="set-sub">Satır aralığı</div><div class="pad-x">' + segRow('density', DENSITY, st.density) + '</div>' +
     '<div class="set-row"><div class="grow">Alt menüde yazılar</div><button class="switch ' + (st.tabLabels !== false ? 'on' : '') + '" data-act="look" data-k="tabLabels" data-v="' + (st.tabLabels !== false ? 'false' : 'true') + '" aria-label="Aç/kapat"></button></div>' +
+    (typeof uxSwitches === 'function' ? uxSwitches(st) : '') +
     '<button class="btn block" data-act="look-reset">Görünümü sıfırla</button>';
 }
 function manageTags(scope) {
