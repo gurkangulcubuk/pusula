@@ -1072,3 +1072,13 @@ body{font-size:calc(16px*var(--fs))}
 .lim-l{display:flex;align-items:center;gap:8px;font-size:calc(12.5px*var(--fs));color:var(--muted)}
 .lim-l span{flex:0 0 auto}
 .lim-l .input{flex:1;min-width:0}
+/* ===== 1.18.2: kaydırma performansı (zayıf GPU'lu telefonlarda) =====
+   Koyu temada zaten görünmeyen büyük bulanık gölgeler kaldırıldı, açık temada hafifletildi;
+   ekran dışındaki kartlar çizilmiyor (content-visibility); üst çubuk, alt menü ve + düğmesi kendi katmanında. */
+[data-theme=dark][data-cards=filled] .card,[data-theme=dark][data-cards=filled] .note-card{box-shadow:none}
+[data-cards=filled] .card,[data-cards=filled] .note-card,.set-acc{box-shadow:0 1px 2px rgba(0,0,0,.06)}
+[data-theme=dark] .set-acc{box-shadow:none}
+#view .card:not(.mail-list):not(.selecting):not(:has(.sel-bar)),#view .note-card{content-visibility:auto;contain-intrinsic-block-size:auto 180px}
+.topbar,.tabbar,.fab{will-change:transform}
+.grid-cards{grid-template-columns:minmax(0,1fr)}
+@media(min-width:760px){.grid-cards{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
