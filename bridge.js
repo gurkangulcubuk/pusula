@@ -39,16 +39,16 @@ const Bridge = {
     const hint = lsGet('pusula.gemail', '');
     location.href = u + '/auth/start' + (hint ? '?hint=' + encodeURIComponent(hint) : '');
   },
-  /* hatırlatmalar: önümüzdeki 36 saat; Google Takvim'e yazılanlar zaten Google'dan bildirilir, onlar gönderilmez */
+  /* hatırlatmalar: önümüzdeki 7 gün; Google Takvim'e yazılanlar zaten Google'dan bildirilir, onlar gönderilmez */
   upcoming() {
-    const now = Date.now(), lim = now + 36 * 3600000, out = [], t0 = today();
+    const now = Date.now(), lim = now + 7 * 86400000, out = [], t0 = today();
     const at = (d, hm) => { const p = parseYmd(d); p.setHours(+hm.slice(0, 2), +hm.slice(3, 5), 0, 0); return p.getTime(); };
     const add = (id, title, d, hm, mins, kind) => (mins || []).forEach(m => {
       const start = at(d, hm), fire = start - m * 60000; if (fire <= now + 60000 || fire > lim) return;
       const key = id + '|' + d + '|' + hm + '|' + m, r = { key, title, d, hm, m, start, kind };
       out.push({ at: fire, tag: key, title: 'PUSULA · ' + title, body: (m ? Lx(m >= 60 ? Math.round(m / 60) + ' saat sonra · ' : m + ' dk sonra · ', 'In ' + (m >= 60 ? Math.round(m / 60) + ' h · ' : m + ' min · ')) : Lx('Şimdi · ', 'Now · ')) + hm, data: { rem: r }, actions: typeof remActions === 'function' ? remActions(r) : [] });
     });
-    for (let i = 0; i <= 2; i++) {
+    for (let i = 0; i <= 7; i++) {
       const d = addDays(t0, i);
       eventsOn(d).forEach(e => { if (!e.allDay && e.start) add(e.id, e.title, d, e.start, e.remind, 'ev'); });
       list('routine').forEach(r => { if (r.time && !r.gev && routineOn(r, d)) add(r.id, r.title, d, r.time, r.remind, 'rt'); });
