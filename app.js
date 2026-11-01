@@ -1,6 +1,6 @@
 'use strict';
 /* PUSULA — kişisel planlama ve bilgi pusulası */
-const VERSION = '1.14.0';
+const VERSION = '1.14.1';
 // Google Cloud OAuth istemci kimliği (herkese açık bir kimliktir, gizli değildir). Boşsa Ayarlar'dan girilir.
 const DRIVE_CLIENT_ID = '723542278040-0hso9u3j7q5og7htu6dradpgaaudpp4m.apps.googleusercontent.com';
 
@@ -203,6 +203,7 @@ const TITLES = {
   pinned: { tr: ['Sabitlenen notlar', 'Buzdolabı kapağı'], en: ['Pinned notes', 'Fridge door'] },
   routines: { tr: ['Tekrarlı işler', 'Vakti geldi'], en: ['Recurring', 'It’s about time'] },
   tools: { tr: ['Araçlar', 'Alet çantası'], en: ['Tools', 'Toolbox'] },
+  flow: { tr: ['Günün akışı', 'Saat saat'], en: ['Day flow', 'Hour by hour'] },
   mail: { tr: ['Posta', 'Postacı'], en: ['Mail', 'The mailman'] }
 };
 // 1.5'e kadar kullanılan ironik isimler: ironik stildeki kullanıcıda gördüğü isimler aynen korunur
@@ -212,21 +213,24 @@ const OLD_IRONIC = {
   notes: ['Unutmadan yaz', 'Before you forget'], pinned: ['Burada dursun', 'Keep these close'], routines: ['Bakım zamanı', 'Maintenance mode']
 };
 // Yeni ironik öneriler (dokununca seçilir; kullanıcı kendisi de yazabilir). Seçili olan isim her zaman listede kalır.
-const TITLE_SUGGEST = {
-  today: { tr: ['Ne var ne yok', 'Günün kokpiti', 'Bugünkü cephe', 'Kahve ve plan'], en: ['What’s up', 'Daily cockpit', 'Today’s front line', 'Coffee & plans'] },
-  plan: { tr: ['Yol haritası', 'Ajanda', 'Kumanda masası', 'Büyük resim'], en: ['Roadmap', 'Agenda', 'Mission control', 'Big picture'] },
-  info: { tr: ['Hafıza sarayı', 'Kara kutu', 'Arşiv odası', 'Not deposu'], en: ['Memory palace', 'Black box', 'Archive room', 'Note vault'] },
-  settings: { tr: ['Tornavida', 'Arka oda', 'Mutfak', 'Ayar çekme'], en: ['Screwdriver', 'Back room', 'The kitchen', 'Fine tuning'] },
-  tasks: { tr: ['Sırada ne var', 'Bekleyen işler', 'Bunu da hallet', 'Yapılacaklar dağı'], en: ['What’s next', 'Pending', 'Get it done', 'Mount To-do'] },
-  calendar: { tr: ['Gün gün', 'Randevular', 'Zaman çizelgesi', 'Ajanda sayfaları'], en: ['Day by day', 'Appointments', 'Timeline', 'Agenda pages'] },
-  routines: { tr: ['Vakti geldi', 'Dönüp dolaşıp', 'Bakım defteri', 'Takvim hatırlatır'], en: ['It’s about time', 'Round and round', 'Upkeep log', 'The calendar remembers'] },
-  habits: { tr: ['Zinciri kırma', 'Her gün biraz', 'Mini zaferler', 'Seri katil'], en: ['Don’t break the chain', 'A little every day', 'Tiny wins', 'Streak hunter'] },
-  goals: { tr: ['Zirve listesi', 'Uzun vade', 'Hedef tahtası', 'Yapacağım, göreceksin'], en: ['Summit list', 'The long game', 'Target board', 'Watch me'] },
-  notes: { tr: ['Aklımda kalsın', 'Defter', 'Beyin fırtınası', 'Not kâğıtları'], en: ['Mental sticky notes', 'Notebook', 'Brainstorm', 'Paper scraps'] },
-  pinned: { tr: ['Buzdolabı kapağı', 'Masada dursun', 'Baş köşe', 'Önemli olanlar'], en: ['Fridge door', 'On the desk', 'Place of honor', 'The important ones'] },
-  tools: { tr: ['Alet çantası', 'İsviçre çakısı', 'Oyun parkı', 'Mola köşesi'], en: ['Toolbox', 'Swiss army knife', 'Playground', 'Break corner'] },
-  mail: { tr: ['Postacı', 'Mektup var', 'Zarf açacağı', 'Kim yazmış'], en: ['The mailman', 'You’ve got mail', 'Letter opener', 'Who wrote'] }
+// Başlık seçenekleri: her bölüm için [normal adlar], [ironik adlar]. İlk normal ve ilk ironik, TITLES'taki varsayılanlardır.
+const TITLE_OPTS = {
+  today: { tr: [['Bugün', 'Gün özeti'], ['Ne var ne yok', 'Günün kokpiti', 'Kahve ve plan']], en: [['Today', 'Daily overview'], ['What’s up', 'Daily cockpit', 'Coffee & plans']] },
+  flow: { tr: [['Günün akışı', 'Bugünün programı'], ['Saat saat', 'Günün senaryosu', 'Akıp giden']], en: [['Day flow', 'Today’s schedule'], ['Hour by hour', 'Today’s script', 'Go with the flow']] },
+  plan: { tr: [['Planla', 'Planlama'], ['Yol haritası', 'Kumanda masası', 'Plan yapan kazanır']], en: [['Plan', 'Planning'], ['Roadmap', 'Mission control', 'Plans & schemes']] },
+  tasks: { tr: [['Görevler', 'Yapılacaklar'], ['Sırada ne var', 'Kaçamayacakların', 'Bunu da hallet']], en: [['Tasks', 'To-dos'], ['What’s next', 'No escape', 'Get it done']] },
+  calendar: { tr: [['Takvim', 'Ajanda'], ['Gün gün', 'Zaman tüneli', 'Saat kaç?']], en: [['Calendar', 'Agenda'], ['Day by day', 'Time tunnel', 'What time is it?']] },
+  routines: { tr: [['Tekrarlı işler', 'Düzenli işler'], ['Vakti geldi', 'Dönüp dolaşıp', 'Yine mi sen?']], en: [['Recurring', 'Regular tasks'], ['It’s about time', 'Round and round', 'You again?']] },
+  habits: { tr: [['Alışkanlıklar', 'Günlük rutin'], ['Zinciri kırma', 'Mini zaferler', 'Her gün biraz']], en: [['Habits', 'Daily routine'], ['Don’t break the chain', 'Tiny wins', 'A little every day']] },
+  goals: { tr: [['Hedefler', 'Amaçlar'], ['Zirve listesi', 'Büyük laflar', 'Yapacağım, göreceksin']], en: [['Goals', 'Aims'], ['Summit list', 'Big talk', 'Watch me']] },
+  info: { tr: [['Bilgi', 'Arşiv'], ['Hafıza sarayı', 'Kara kutu', 'İkinci beyin']], en: [['Info', 'Archive'], ['Memory palace', 'Black box', 'Second brain']] },
+  notes: { tr: [['Notlar', 'Defter'], ['Aklımda kalsın', 'Unutmadan yaz', 'Kâğıt parçaları']], en: [['Notes', 'Notebook'], ['Mental sticky notes', 'Before you forget', 'Paper scraps']] },
+  pinned: { tr: [['Sabitlenen notlar', 'Önemli notlar'], ['Buzdolabı kapağı', 'Baş köşe', 'Burada dursun']], en: [['Pinned notes', 'Important notes'], ['Fridge door', 'Place of honor', 'Keep these close']] },
+  mail: { tr: [['Posta', 'E-posta'], ['Postacı', 'Mektup var', 'Zarf açacağı']], en: [['Mail', 'Email'], ['The mailman', 'You’ve got mail', 'Letter opener']] },
+  tools: { tr: [['Araçlar', 'Araçlar ve oyunlar'], ['Alet çantası', 'İsviçre çakısı', 'Mola köşesi']], en: [['Tools', 'Tools & games'], ['Toolbox', 'Swiss army knife', 'Break corner']] },
+  settings: { tr: [['Ayarlar', 'Tercihler'], ['Tornavida', 'Arka oda', 'Ayar çekme']], en: [['Settings', 'Preferences'], ['Screwdriver', 'Back room', 'Fine tuning']] }
 };
+const TITLE_SUGGEST = {}; Object.keys(TITLE_OPTS).forEach(k => { TITLE_SUGGEST[k] = { tr: TITLE_OPTS[k].tr[1], en: TITLE_OPTS[k].en[1] }; });
 const isEn = () => settings().lang === 'en';
 function T(key) { const st = settings(); const c = (st.titles || {})[key]; if (c) return c; if (st.titleStyle === 'ironic' && st.ironicKeep && st.ironicKeep[key]) return st.ironicKeep[key]; const t = TITLES[key]; if (!t) return key; return t[isEn() ? 'en' : 'tr'][st.titleStyle === 'ironic' ? 1 : 0]; }
 function TL(key) { const c = (settings().titles || {})[key]; if (c) return c; const t = TITLES[key]; return t ? t[isEn() ? 'en' : 'tr'][0] : key; }
@@ -758,6 +762,8 @@ const EN = {
   'Google oturumunu kendiliğinden yenile': 'Renew Google session automatically', 'Oturum bitince uygulamaya ilk dokunuşta yenilenir; kısa bir Google penceresi açılıp kapanabilir': 'When the session expires it renews on your next tap; a Google window may briefly open and close',
   'Tekrarlı işler': 'Recurring', 'Yeni tekrarlı iş': 'New recurring task', 'Tekrarlı işi düzenle': 'Edit recurring task', 'Günün akışı (saat sırasıyla)': 'Day flow (by time)', 'Alt menü': 'Bottom menu', 'Sekmelerin sırası ve görünürlüğü. Okla taşı, anahtarla gizle.': 'Order and visibility of tabs. Move with arrows, hide with the switch.', 'araçlar ve oyunlar': 'tools & games',
   'Düzenli yaptığın işler: “Yaptım” deyince sonraki tarihe geçer; istersen yaptıktan sonra saymaya başlar, maliyet ve geçmiş tutar. Tek seferlik ya da yapılacak işler için Görevler’i kullan.': 'Things you do regularly: tap “Done” and it moves to the next date; it can count from when you did it, and keeps cost and history. Use Tasks for one-off to-dos.',
+  'Her bölüm için normal ve ironik öneriler var; dokununca seçilir. İstersen kendin yaz. Boş bırakırsan yukarıdaki stile göre yazılır.': 'Each section has normal and ironic suggestions; tap to pick, or type your own. Leave empty to follow the style above.',
+  'Tüm başlıkları varsayılana döndür': 'Reset all titles to default', 'Senin': 'Yours', 'Normal': 'Normal', 'İronik': 'Ironic', 'Tüm başlıklar varsayılana dönsün mü? (Kendi bölümlerinin adları değişmez)': 'Reset all titles to default? (Your own sections keep their names)', 'Başlıklar varsayılana döndü': 'Titles reset to default',
   'Tekrar': 'Repeat', 'Tekrar yok': 'No repeat', 'Her gün': 'Every day', 'Hafta içi her gün': 'Every weekday', 'Her hafta': 'Every week', 'Her ay': 'Every month', 'Her yıl': 'Every year',
   'Etiketler': 'Tags', '+ yeni etiket': '+ new tag', 'Sil': 'Delete', 'Kaydet': 'Save', 'Kapat': 'Close', 'Tamamla': 'Complete', 'Ekle': 'Add', '+ Ekle': '+ Add',
   'Görev silindi': 'Task deleted', 'Görev tamamlandı': 'Task completed', 'Geri al': 'Undo', 'Etkinlik silindi': 'Event deleted', 'Hedef silindi': 'Goal deleted', 'Not silindi': 'Note deleted', 'Silindi': 'Deleted',
@@ -834,6 +840,8 @@ const EN = {
   'Sağ üstteki zilde ve Bugün ekranının üstündeki şeritte görünür. Bir uyarıyı gizlersen o gün bir daha gösterilmez.': 'Shown in the bell at the top right and in the strip on the Today screen. A hidden alert won’t show again that day.',
   'Bugün ekranında uyarı şeridi': 'Alert strip on Today screen', 'Geciken görevler': 'Overdue tasks', 'Geciken ve yaklaşan rutinler': 'Late and upcoming routines', 'Önümüzdeki 3 saatteki etkinlikler': 'Events in the next 3 hours',
   'Akşam alışkanlık hatırlatması (20:00 sonrası)': 'Evening habit reminder (after 8 pm)', 'Son tarihi yaklaşan hedefler': 'Goals with a near deadline', 'Yedek hatırlatması': 'Backup reminder', 'Google eşitleme': 'Google sync', 'Yeni sürüm': 'New version',
+  'Her bölüm için normal ve ironik öneriler var; dokununca seçilir. İstersen kendin yaz. Boş bırakırsan yukarıdaki stile göre yazılır.': 'Each section has normal and ironic suggestions; tap to pick, or type your own. Leave empty to follow the style above.',
+  'Tüm başlıkları varsayılana döndür': 'Reset all titles to default', 'Senin': 'Yours', 'Normal': 'Normal', 'İronik': 'Ironic', 'Tüm başlıklar varsayılana dönsün mü? (Kendi bölümlerinin adları değişmez)': 'Reset all titles to default? (Your own sections keep their names)', 'Başlıklar varsayılana döndü': 'Titles reset to default',
   'Tekrar': 'Repeat', 'Tekrarlanmaz': 'Does not repeat', 'Her gün': 'Every day', 'Her hafta': 'Every week', 'Her ay': 'Every month', 'Her yıl': 'Every year', 'Özel…': 'Custom…',
   'Ne zamana kadar? (boş bırakırsan süresiz)': 'Until when? (leave empty for no end)', 'Sadece bu gün': 'Only this day', 'Tümünü sil': 'Delete all', '+ Tekrarlı iş': '+ Recurring task',
   'Google’da tekrarlanan etkinlik; burada sadece bu gün değişir. Tekrarı Google Takvim’den düzenleyebilirsin.': 'Recurring event in Google; only this day changes here. Edit the series in Google Calendar.'
@@ -1815,11 +1823,13 @@ function viewSettings() {
   const general = '<div class="set-sub">Dil / Language</div><div class="pad-x"><div class="seg"><button class="u ' + (st.lang !== 'en' ? 'on' : '') + '" data-act="look" data-k="lang" data-v="tr">Türkçe</button><button class="u ' + (st.lang === 'en' ? 'on' : '') + '" data-act="look" data-k="lang" data-v="en">English</button></div></div>' +
     '<div class="set-row"><div class="grow"><div>Adın</div><div class="sub">Bugün ekranında selamlamak için</div></div><input class="input slim" id="setName" style="max-width:170px" placeholder="Adın" value="' + esc(st.name) + '" autocomplete="off"></div>';
   const titles = '<div class="set-sub">Başlık stili</div><div class="pad-x"><div class="seg"><button class="' + (st.titleStyle !== 'ironic' ? 'on' : '') + '" data-act="look" data-k="titleStyle" data-v="classic">Klasik</button><button class="' + (st.titleStyle === 'ironic' ? 'on' : '') + '" data-act="look" data-k="titleStyle" data-v="ironic">İronik</button></div></div>' +
-    '<div class="set-sub">Başlıkları yeniden adlandır</div><p class="muted sm" style="margin:0 0 6px">Boş bırakırsan yukarıdaki stile göre yazılır.</p>' +
-    Object.keys(TITLES).map(k => { const L = isEn() ? 'en' : 'tr'; const cur = (st.titles || {})[k] || (st.titleStyle === 'ironic' && st.ironicKeep && st.ironicKeep[k]) || ''; const sug = (TITLE_SUGGEST[k] || {})[L] || [];
-      const chips = cur && !sug.includes(cur) ? [cur].concat(sug) : sug;
-      return '<div class="title-row"><div class="tr-head"><span class="u">' + esc(TITLES[k][L][0]) + '</span><input class="input slim" data-title-key="' + k + '" placeholder="' + esc(TITLES[k][L][st.titleStyle === 'ironic' ? 1 : 0]) + '" value="' + esc(cur) + '" autocomplete="off"></div>' +
-        '<div class="chips tr-sugs">' + chips.map(v => '<button class="chip sm u ' + (cur === v ? 'on' : '') + '" data-act="title-pick" data-k="' + k + '" data-v="' + esc(v) + '">' + esc(v) + '</button>').join('') + (cur ? '<button class="chip sm" data-act="title-pick" data-k="' + k + '" data-v="">Varsayılan</button>' : '') + '</div></div>'; }).join('') +
+    '<div class="set-sub">Başlıkları yeniden adlandır</div><p class="muted sm" style="margin:0 0 6px">Her bölüm için normal ve ironik öneriler var; dokununca seçilir. İstersen kendin yaz. Boş bırakırsan yukarıdaki stile göre yazılır.</p>' +
+    '<button class="btn block" data-act="titles-reset">' + icon('undo', 'sm') + ' <span>Tüm başlıkları varsayılana döndür</span></button>' +
+    Object.keys(TITLE_OPTS).filter(k => TITLES[k]).map(k => { const L = isEn() ? 'en' : 'tr'; const cur = (st.titles || {})[k] || (st.titleStyle === 'ironic' && st.ironicKeep && st.ironicKeep[k]) || ''; const [nor, iro] = TITLE_OPTS[k][L];
+      const chip = v => '<button class="chip sm u ' + (cur === v ? 'on' : '') + '" data-act="title-pick" data-k="' + k + '" data-v="' + esc(v) + '">' + esc(v) + '</button>';
+      const own = cur && !nor.includes(cur) && !iro.includes(cur) ? '<div class="tr-grp"><span class="tr-lbl">' + tr('Senin') + '</span><div class="chips">' + chip(cur) + '</div></div>' : '';
+      return '<div class="title-row"><div class="tr-head"><span class="u">' + esc(TITLES[k][L][0]) + '</span><input class="input slim" data-title-key="' + k + '" placeholder="' + esc(TITLES[k][L][st.titleStyle === 'ironic' ? 1 : 0]) + '" value="' + esc(cur) + '" autocomplete="off">' + (cur ? '<button class="icon-btn" data-act="title-pick" data-k="' + k + '" data-v="" aria-label="Varsayılan">' + icon('undo', 'sm') + '</button>' : '') + '</div>' +
+        own + '<div class="tr-grp"><span class="tr-lbl">' + tr('Normal') + '</span><div class="chips">' + nor.map(chip).join('') + '</div></div><div class="tr-grp"><span class="tr-lbl">' + tr('İronik') + '</span><div class="chips">' + iro.map(chip).join('') + '</div></div></div>'; }).join('') +
     '<div class="set-sub">Kendi bölümlerin</div>' +
     (customMods().length ? customMods().map(m => '<div class="set-row cmod-row"><div class="grow"><input class="input slim" data-cmod-name="' + m.id + '" value="' + esc(m.name) + '" autocomplete="off"><div class="sub"><span>' + CTYPES[m.type][0] + '</span> · <span>' + (m.home === 'info' ? 'Bilgi sekmesinde' : 'Planla sekmesinde') + '</span></div></div><button class="icon-btn" data-act="cmod-home" data-id="' + m.id + '" aria-label="Sekmeyi değiştir">' + icon(m.home === 'info' ? 'info' : 'plan') + '</button><button class="icon-btn" data-act="cmod-del" data-id="' + m.id + '" aria-label="Sil">' + icon('trash') + '</button></div>').join('') : '<p class="muted sm" style="margin:4px 0 8px">Henüz yok. Liste, not defteri, sayaç ya da kayıt defteri olarak kendi bölümünü ekle.</p>') +
     '<button class="btn block" data-act="cmod-new">' + icon('plus') + ' Yeni bölüm ekle</button>';
@@ -2071,6 +2081,7 @@ const ACTIONS = {
   'cal-toggle': async el => { const c = Cal.calById(el.dataset.id); if (!c) return; c.on = !c.on; el.classList.toggle('on', c.on); await Cal.saveCfg(); Cal.fetched = {}; if (Cal.ready()) Cal.sync(); },
   'cal-routines': async el => { Cal.cfg.routines = Cal.cfg.routines === false; el.classList.toggle('on', Cal.cfg.routines !== false); await Cal.saveCfg(); },
   'cal-off': async () => { if (!ask('Bu cihazda Google Takvim bağlantısı kesilsin mi? Google Takvim’deki etkinliklerin silinmez.')) return; Cal.cfg.connected = false; Cal.byDate = {}; Cal.persist(); await Cal.saveCfg(); Cal.setStatus('off'); openCal(); },
+  'titles-reset': () => { if (!ask('Tüm başlıklar varsayılana dönsün mü? (Kendi bölümlerinin adları değişmez)')) return; const st = settings(); st.titles = {}; st.ironicKeep = {}; st.titleStyle = 'classic'; saveSettings(); toast(tr('Başlıklar varsayılana döndü')); },
   'title-pick': el => { const st = settings(); st.titles = st.titles || {}; const k = el.dataset.k; if (el.dataset.v) st.titles[k] = el.dataset.v; else { delete st.titles[k]; if (st.ironicKeep) delete st.ironicKeep[k]; } saveSettings(); },
   'citem-toggle': async el => { const i = S.items.get(el.dataset.id); if (!i) return; i.done = !i.done; i.doneAt = i.done ? Date.now() : null; await save(i); },
   'citem-step': async el => { const i = S.items.get(el.dataset.id); if (!i) return; i.value = r2((Number(i.value) || 0) + Number(el.dataset.dir)); i.at = Date.now(); await save(i); },

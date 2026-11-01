@@ -16,7 +16,7 @@ function flowCard() {
     });
     if (!nowPlaced && items.some(x => x.time)) body += '<div class="flow-now"><span>' + nowHM + '</span></div>';
   }
-  return card('clock', Lx('Günün akışı', 'Day flow'), '<div class="flow">' + body + '</div>', 'calendar');
+  return card('clock', T('flow'), '<div class="flow">' + body + '</div>', 'calendar');
 }
 
 /* ===================== Akıllı hızlı ekleme ===================== */
